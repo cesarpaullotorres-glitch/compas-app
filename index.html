@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Compás — Clases de música cerca de ti</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#151922;
+    --ink-2:#1d232f;
+    --paper:#F6F1E7;
+    --paper-dim:#e9e2d3;
+    --brass:#c9973f;
+    --brass-bright:#e0b563;
+    --teal:#2f6e68;
+    --teal-bright:#3f8f87;
+    --text-warm:#f4efe4;
+    --text-dim:#a9a9ad;
+    --danger:#c1543f;
+    --radius:14px;
+    --shadow:0 10px 30px rgba(0,0,0,0.25);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--ink);
+    color:var(--text-warm);
+    font-family:'Work Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  h1,h2,h3{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  .mono{
+    font-family:'IBM Plex Mono', monospace;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    font-size:11px;
+  }
+  button{font-family:inherit;cursor:pointer;}
+  input,select,textarea{font-family:inherit;}
+
+  #app{max-width:480px;margin:0 auto;min-height:100vh;position:relative;background:var(--ink);}
+
+  .staff{position:relative;height:56px;margin:0 24px;}
+  .staff .line{position:absolute;left:0;right:0;height:1px;background:rgba(244,239,228,0.16);}
+  .staff .line:nth-child(1){top:8px;}
+  .staff .line:nth-child(2){top:20px;}
+  .staff .line:nth-child(3){top:32px;}
+  .staff .line:nth-child(4){top:44px;}
+
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 24px 8px;}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand-mark{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--brass),var(--brass-bright));display:flex;align-items:center;justify-content:center;color:var(--ink);font-weight:700;font-family:'Fraunces',serif;flex-shrink:0;}
+  .brand h1{font-size:20px;color:var(--text-warm);}
+  .brand .tag{font-size:11px;color:var(--brass-bright);margin-top:1px;}
+
+  .auth-widget{display:flex;align-items:center;gap:8px;}
+  .credits-badge{
+    display:flex;align-items:center;gap:5px;background:var(--ink-2);
+    border:1px solid rgba(201,151,63,0.3);border-radius:999px;
+    padding:6px 11px;font-size:12px;color:var(--brass-bright);font-weight:600;
+    font-family:'IBM Plex Mono';
+  }
+  .login-link{font-size:12.5px;color:var(--text-dim);background:none;border:none;text-decoration:underline;}
+
+  .view{display:none;padding:0 24px 100px;}
+  .view.active{display:block;}
+
+  .hero{padding:8px 0 20px;}
+  .hero h2{font-size:28px;line-height:1.15;color:var(--text-warm);}
+  .hero p{color:var(--text-dim);font-size:14px;margin-top:8px;line-height:1.5;}
+
+  .cta-row{display:flex;gap:10px;margin-top:18px;}
+  .btn{border:none;border-radius:999px;padding:13px 20px;font-size:14px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:transform .15s ease, opacity .15s ease;}
+  .btn:active{transform:scale(0.97);}
+  .btn-primary{background:var(--brass);color:var(--ink);}
+  .btn-primary:hover{background:var(--brass-bright);}
+  .btn-ghost{background:transparent;color:var(--text-warm);border:1px solid rgba(244,239,228,0.25);}
+  .btn-ghost:hover{border-color:var(--brass);color:var(--brass-bright);}
+  .btn-block{width:100%;}
+  .btn-lg{padding:16px 22px;font-size:15px;}
+  .btn:disabled{opacity:0.35;pointer-events:none;}
+  .btn-sm{padding:8px 14px;font-size:12.5px;}
+  .btn-teal{background:var(--teal);color:var(--text-warm);}
+  .btn-teal:hover{background:var(--teal-bright);}
+
+  .filterbar{display:flex;gap:8px;margin:18px 0 14px;overflow-x:auto;padding-bottom:4px;}
+  .chip{flex-shrink:0;padding:8px 14px;border-radius:999px;background:var(--ink-2);border:1px solid rgba(244,239,228,0.12);font-size:13px;color:var(--text-dim);white-space:nowrap;}
+  .chip.active{background:var(--teal);color:var(--text-warm);border-color:var(--teal);}
+
+  .card-list{display:flex;flex-direction:column;gap:12px;margin-top:4px;}
+  .teacher-card{background:var(--ink-2);border-radius:var(--radius);padding:14px;display:flex;gap:12px;border:1px solid rgba(244,239,228,0.06);}
+  .avatar{width:56px;height:56px;border-radius:12px;flex-shrink:0;background:linear-gradient(135deg,var(--teal),var(--teal-bright));display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-weight:600;font-size:20px;color:var(--text-warm);background-size:cover;background-position:center;}
+  .tcard-body{flex:1;min-width:0;}
+  .tcard-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .tcard-name{font-size:15px;font-weight:600;color:var(--text-warm);font-family:'Work Sans';}
+  .tcard-rate{font-family:'IBM Plex Mono';font-size:12px;color:var(--brass-bright);white-space:nowrap;}
+  .tcard-meta{font-size:12.5px;color:var(--text-dim);margin-top:3px;}
+  .tcard-tags{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .tag-pill{font-size:11px;padding:3px 9px;border-radius:999px;background:rgba(201,151,63,0.14);color:var(--brass-bright);}
+  .tag-pill.zone{background:rgba(47,110,104,0.25);color:var(--teal-bright);}
+  .contact-row{margin-top:10px;}
+  .contact-btn{width:100%;justify-content:center;font-size:12.5px;padding:9px 12px;}
+  .contact-revealed{display:flex;align-items:center;gap:8px;background:rgba(47,110,104,0.18);border-radius:999px;padding:9px 12px;font-size:12.5px;color:var(--teal-bright);text-decoration:none;justify-content:center;font-weight:600;}
+
+  .empty-state{text-align:center;padding:50px 20px;color:var(--text-dim);}
+  .empty-state .icon{font-size:34px;margin-bottom:10px;opacity:0.6;}
+  .empty-state p{font-size:13.5px;line-height:1.5;}
+
+  .bottomnav{position:fixed;bottom:0;left:0;right:0;max-width:480px;margin:0 auto;background:rgba(21,25,34,0.92);backdrop-filter:blur(10px);border-top:1px solid rgba(244,239,228,0.08);display:flex;padding:8px 8px calc(8px + env(safe-area-inset-bottom));}
+  .navbtn{flex:1;background:none;border:none;color:var(--text-dim);display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;border-radius:10px;font-size:10.5px;position:relative;}
+  .navbtn .ic{font-size:19px;}
+  .navbtn.active{color:var(--brass-bright);}
+  .navbtn .lock{position:absolute;top:2px;right:20%;font-size:9px;}
+
+  .wizard-header{display:flex;align-items:center;gap:14px;padding:18px 24px 6px;}
+  .wizard-back{background:none;border:none;color:var(--text-dim);font-size:20px;padding:4px;}
+  .wizard-progress{flex:1;position:relative;height:30px;}
+  .staff-progress{position:relative;height:100%;}
+  .staff-progress .sline{position:absolute;left:0;right:0;height:1px;background:rgba(244,239,228,0.14);}
+  .staff-progress .sline:nth-child(1){top:6px;}
+  .staff-progress .sline:nth-child(2){top:15px;}
+  .staff-progress .sline:nth-child(3){top:24px;}
+  .note{position:absolute;top:10px;width:16px;height:16px;border-radius:50%;background:var(--ink-2);border:2px solid rgba(244,239,228,0.25);transform:translateX(-50%);transition:all .25s ease;}
+  .note.done{background:var(--brass);border-color:var(--brass);}
+  .note.current{background:var(--teal);border-color:var(--teal-bright);width:20px;height:20px;top:8px;box-shadow:0 0 0 4px rgba(47,110,104,0.25);}
+
+  .step{padding:14px 24px 40px;}
+  .step-eyebrow{color:var(--brass-bright);margin-bottom:8px;}
+  .step h2{font-size:24px;color:var(--text-warm);margin-bottom:6px;}
+  .step .hint{color:var(--text-dim);font-size:13.5px;line-height:1.5;margin-bottom:24px;}
+
+  .field{margin-bottom:18px;}
+  .field label{display:block;font-size:12.5px;color:var(--text-dim);margin-bottom:7px;font-weight:500;}
+  .field input[type=text], .field input[type=tel], .field input[type=email], .field input[type=number], .field input[type=url], .field input[type=password], .field textarea, .field select{
+    width:100%;background:var(--ink-2);border:1.5px solid rgba(244,239,228,0.12);border-radius:10px;padding:13px 14px;color:var(--text-warm);font-size:15px;outline:none;transition:border-color .15s ease;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus{border-color:var(--brass);}
+  .field textarea{resize:vertical;min-height:90px;}
+  .field .counter{text-align:right;font-size:11px;color:var(--text-dim);margin-top:4px;font-family:'IBM Plex Mono';}
+  .field .err{color:var(--danger);font-size:12px;margin-top:5px;display:none;}
+
+  .option-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .option-grid.thirds{grid-template-columns:1fr 1fr 1fr;}
+  .option-card{background:var(--ink-2);border:1.5px solid rgba(244,239,228,0.12);border-radius:10px;padding:14px 10px;text-align:center;color:var(--text-dim);font-size:13px;font-weight:500;}
+  .option-card.selected{border-color:var(--brass);color:var(--brass-bright);background:rgba(201,151,63,0.08);}
+
+  .photo-upload{width:100%;aspect-ratio:1.6;border-radius:12px;border:1.5px dashed rgba(244,239,228,0.25);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-dim);gap:8px;background:var(--ink-2);position:relative;overflow:hidden;}
+  .photo-upload .ic{font-size:26px;}
+  .photo-upload span{font-size:12.5px;}
+  .photo-upload img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+
+  .step-footer{display:flex;gap:10px;padding:6px 24px 30px;}
+
+  .preview-wrap{background:var(--ink-2);border-radius:16px;padding:18px;border:1px solid rgba(201,151,63,0.25);margin-bottom:20px;}
+  .preview-badge{display:flex;align-items:center;gap:6px;color:var(--brass-bright);margin-bottom:14px;}
+
+  .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--teal);color:var(--text-warm);padding:12px 20px;border-radius:999px;font-size:13.5px;font-weight:500;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:all .3s ease;display:flex;align-items:center;gap:8px;white-space:nowrap;z-index:50;max-width:90%;text-align:center;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  .toast.error{background:var(--danger);}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(10,12,17,0.7);display:none;align-items:flex-end;justify-content:center;z-index:100;}
+  .modal-overlay.active{display:flex;}
+  .modal{background:var(--ink-2);width:100%;max-width:480px;border-radius:20px 20px 0 0;padding:26px 24px calc(26px + env(safe-area-inset-bottom));animation:slideup .25s ease;max-height:88vh;overflow-y:auto;}
+  @keyframes slideup{from{transform:translateY(30px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+  .modal h3{font-size:19px;color:var(--text-warm);margin-bottom:4px;}
+  .modal .hint{color:var(--text-dim);font-size:13px;margin-bottom:18px;}
+
+  .auth-tabs{display:flex;gap:6px;background:var(--ink);border-radius:10px;padding:4px;margin-bottom:20px;}
+  .auth-tab{flex:1;text-align:center;padding:9px;border-radius:8px;font-size:12.5px;color:var(--text-dim);background:none;border:none;font-weight:600;}
+  .auth-tab.active{background:var(--brass);color:var(--ink);}
+
+  .sup-card{background:var(--ink-2);border-radius:var(--radius);padding:14px;border:1px solid rgba(244,239,228,0.06);margin-bottom:12px;}
+  .sup-top{display:flex;justify-content:space-between;align-items:center;}
+  .sup-title{font-weight:600;font-size:14.5px;color:var(--text-warm);}
+  .sup-monto{font-family:'IBM Plex Mono';color:var(--brass-bright);font-size:13px;}
+  .sup-meta{font-size:12px;color:var(--text-dim);margin-top:5px;}
+  .sup-msg{font-size:13px;color:var(--text-dim);margin-top:8px;line-height:1.4;}
+  .sup-postulantes{font-size:11px;color:var(--teal-bright);margin-top:8px;}
+
+  ::-webkit-scrollbar{display:none;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">C</div>
+      <div>
+        <h1>Compás</h1>
+        <div class="tag mono">Egresados del Conservatorio</div>
+      </div>
+    </div>
+    <div class="auth-widget" id="authWidget">
+      <button class="login-link" onclick="openAuthModal('login')">Iniciar sesión</button>
+    </div>
+  </div>
+
+  <!-- ===== VIEW: EXPLORAR ===== -->
+  <div class="view active" id="view-explorar">
+    <div class="hero">
+      <h2>Encuentra a tu profesor de música, cerca de ti.</h2>
+      <p>Clases con egresados y estudiantes del conservatorio, filtradas por tu zona.</p>
+    </div>
+    <div class="filterbar" id="filterbar"></div>
+    <div class="card-list" id="teacherList">
+      <div class="empty-state"><div class="icon">♪</div><p>Cargando profesores…</p></div>
+    </div>
+  </div>
+
+  <!-- ===== VIEW: ENSEÑAR ===== -->
+  <div class="view" id="view-ensenar">
+    <div class="hero">
+      <h2>Llena tus huecos de horario. Enseña lo que sabes.</h2>
+      <p>Publica tu perfil, define tu zona y tu tarifa. Los alumnos te contactan directo, sin intermediarios raros.</p>
+    </div>
+    <div class="staff"><div class="line"></div><div class="line"></div><div class="line"></div><div class="line"></div></div>
+    <div class="cta-row" style="margin-top:14px;">
+      <button class="btn btn-primary btn-block btn-lg" onclick="startWizard()">Crear mi perfil</button>
+    </div>
+    <div id="myProfilePreview" style="margin-top:24px;"></div>
+  </div>
+
+  <!-- ===== VIEW: WIZARD ===== -->
+  <div class="view" id="view-wizard">
+    <div class="wizard-header">
+      <button class="wizard-back" onclick="prevStep()">←</button>
+      <div class="wizard-progress"><div class="staff-progress" id="staffProgress"></div></div>
+    </div>
+    <div id="stepContainer"></div>
+  </div>
+
+  <!-- ===== VIEW: SUPLENCIAS (gremio) ===== -->
+  <div class="view" id="view-suplencias">
+    <div class="hero">
+      <h2>Bolsa de Suplencias</h2>
+      <p>¿Cruce de horario o un evento? Publica y que un colega del gremio te cubra.</p>
+    </div>
+    <div class="cta-row">
+      <button class="btn btn-teal btn-block" onclick="openSuplenciaForm()">Publicar suplencia · 10 créditos</button>
+    </div>
+    <div class="card-list" id="suplenciaList" style="margin-top:18px;"></div>
+  </div>
+
+  <div class="bottomnav">
+    <button class="navbtn active" data-nav="explorar" onclick="switchView('explorar')"><span class="ic">♪</span>Explorar</button>
+    <button class="navbtn" data-nav="ensenar" onclick="switchView('ensenar')"><span class="ic">✎</span>Enseñar</button>
+    <button class="navbtn" data-nav="suplencias" onclick="goSuplencias()"><span class="ic">⚑</span>Suplencias<span class="lock" id="supLock">🔒</span></button>
+    <button class="navbtn" data-nav="cuenta" onclick="openAccountOrAuth()"><span class="ic">◐</span>Mi cuenta</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- ===== MODAL: AUTH (login / registro alumno) ===== -->
+  <div class="modal-overlay" id="authModal">
+    <div class="modal">
+      <div class="auth-tabs">
+        <button class="auth-tab" id="tabLogin" onclick="setAuthTab('login')">Ya tengo cuenta</button>
+        <button class="auth-tab" id="tabRegister" onclick="setAuthTab('register')">Crear cuenta de alumno</button>
+      </div>
+
+      <div id="authFormLogin">
+        <h3>Inicia sesión</h3>
+        <div class="hint">Entra para contactar profesores y ver tus créditos.</div>
+        <div class="field"><label>Correo</label><input type="email" id="l_email" placeholder="tucorreo@ejemplo.com"></div>
+        <div class="field"><label>Contraseña</label><input type="password" id="l_pass" placeholder="••••••••"></div>
+        <button class="btn btn-primary btn-block btn-lg" onclick="doLogin()">Ingresar</button>
+      </div>
+
+      <div id="authFormRegister" style="display:none;">
+        <h3>Crea tu cuenta de alumno</h3>
+        <div class="hint">Empiezas con 20 créditos gratis para contactar profesores.</div>
+        <div class="field"><label>Nombre</label><input type="text" id="s_name" placeholder="Tu nombre"></div>
+        <div class="field"><label>Correo</label><input type="email" id="s_email" placeholder="tucorreo@ejemplo.com"></div>
+        <div class="field"><label>Contraseña</label><input type="password" id="s_pass" placeholder="Mínimo 6 caracteres"></div>
+        <div class="field"><label>Teléfono / WhatsApp</label><input type="tel" id="s_phone" placeholder="+51 999 999 999"></div>
+        <div class="field"><label>Tu zona</label><select id="s_zone"><option value="">Selecciona tu distrito</option></select></div>
+        <button class="btn btn-primary btn-block btn-lg" onclick="saveStudent()">Registrarme</button>
+      </div>
+
+      <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="closeAuthModal()">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: CUENTA (usuario logueado) ===== -->
+  <div class="modal-overlay" id="accountModal">
+    <div class="modal">
+      <h3 id="acc_name">—</h3>
+      <div class="hint" id="acc_role">—</div>
+      <div class="credits-badge" style="width:fit-content;margin-bottom:18px;">✦ <span id="acc_credits">0</span> créditos</div>
+      <button class="btn btn-teal btn-block" onclick="rechargeCredits()">Recargar 50 créditos (demo)</button>
+      <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="doLogout()">Cerrar sesión</button>
+      <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="closeAccountModal()">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: PUBLICAR SUPLENCIA ===== -->
+  <div class="modal-overlay" id="suplenciaModal">
+    <div class="modal">
+      <h3>Publicar suplencia</h3>
+      <div class="hint">Cuesta 10 créditos. Visible para todo el gremio.</div>
+      <div class="field"><label>Instrumento</label><select id="sup_instrument"></select></div>
+      <div class="field"><label>Distrito</label><select id="sup_zone"></select></div>
+      <div class="field"><label>Pago ofrecido (S/)</label><input type="number" id="sup_monto" placeholder="Ej. 40"></div>
+      <div class="field"><label>Mensaje</label><textarea id="sup_msg" maxlength="140" placeholder="Ej. Clase particular, sábado 4pm, alumno intermedio"></textarea></div>
+      <div class="cta-row">
+        <button class="btn btn-ghost btn-block" onclick="closeSuplenciaForm()">Cancelar</button>
+        <button class="btn btn-primary btn-block" onclick="submitSuplencia()">Publicar</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+/* ============================================================
+   COMPÁS — Integración Firebase (Firestore + Authentication)
+   SDK modular v10 vía CDN.
+   ============================================================ */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore, collection, doc, addDoc, setDoc, getDoc,
+  onSnapshot, query, where, orderBy, updateDoc, increment, arrayUnion, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  onAuthStateChanged, signOut
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+/* --------------------------------------------------------------
+   1) PEGA AQUÍ TUS CREDENCIALES DE FIREBASE
+   (Firebase Console → Configuración del proyecto → Tus apps → SDK)
+-------------------------------------------------------------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyAjcsq4zEj4b6AS3pBOEiYz2beSYOQd2j8",
+  authDomain: "compas-aacfe.firebaseapp.com",
+  projectId: "compas-aacfe",
+  storageBucket: "compas-aacfe.firebasestorage.app",
+  messagingSenderId: "557122402110",
+  appId: "1:557122402110:web:066f3e26a932aabe319e6f"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+const CREDITOS_INICIALES = 20;
+const COSTO_VER_CONTACTO = 5;
+const COSTO_PUBLICAR_SUPLENCIA = 10;
+
+/* ============ DATOS BASE (catálogos, no van a Firestore) ============ */
+const ZONES = ["Callao","Cercado de Lima","San Miguel","Pueblo Libre","Jesús María","Magdalena","Breña","La Victoria","Surquillo","Miraflores","San Isidro","Barranco","Surco","San Borja","La Molina","Los Olivos","San Martín de Porres","Comas","Independencia","Ate","San Juan de Lurigancho","Villa El Salvador"];
+const INSTRUMENTS = ["Piano","Guitarra","Canto","Violín","Batería","Bajo","Cajón","Saxofón","Trompeta","Flauta","Charango","Cuatro","Solfeo / Teoría"];
+const MODALIDADES = [{id:"presencial",label:"Presencial"},{id:"virtual",label:"Virtual"},{id:"ambas",label:"Ambas"}];
+
+let TEACHERS = [];
+let SUPLENCIAS = [];
+let activeFilter = "Todos";
+let currentEditingTeacher = null;
+let currentUser = null;   // { uid, email, name, role, creditos, zone, phone }
+let authTab = 'login';
+let revealedContacts = new Set();
+
+/* ============ AUTH STATE ============ */
+onAuthStateChanged(auth, async (user) => {
+  if(user){
+    const snap = await getDoc(doc(db, "usuarios", user.uid));
+    if(snap.exists()){
+      currentUser = { uid: user.uid, email: user.email, ...snap.data() };
+    } else {
+      currentUser = { uid: user.uid, email: user.email, name: user.email, role: "alumno", creditos: 0 };
+    }
+  } else {
+    currentUser = null;
+  }
+  renderAuthWidget();
+  renderNavLock();
+  renderTeacherList();
+});
+
+function renderAuthWidget(){
+  const w = document.getElementById('authWidget');
+  if(currentUser){
+    w.innerHTML = `<div class="credits-badge" onclick="openAccountOrAuth()">✦ ${currentUser.creditos ?? 0}</div>`;
+  } else {
+    w.innerHTML = `<button class="login-link" onclick="openAuthModal('login')">Iniciar sesión</button>`;
+  }
+}
+
+function renderNavLock(){
+  const lock = document.getElementById('supLock');
+  lock.style.display = (currentUser && currentUser.role === 'profesor') ? 'none' : 'inline';
+}
+
+/* ============ FIRESTORE: PROFESORES (live) ============ */
+const profesoresQ = query(collection(db, "profesores"), orderBy("createdAt", "desc"));
+onSnapshot(profesoresQ, (snap) => {
+  TEACHERS = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderFilterbar();
+  renderTeacherList();
+  renderMyProfilePreview();
+}, (err) => {
+  console.error("Error leyendo profesores:", err);
+  document.getElementById('teacherList').innerHTML = `<div class="empty-state"><div class="icon">⚠</div><p>No se pudo conectar a Firebase.<br>Revisa tu firebaseConfig.</p></div>`;
+});
+
+/* ============ FIRESTORE: SUPLENCIAS (live) ============ */
+const suplenciasQ = query(collection(db, "suplencias"), where("estado","==","abierta"), orderBy("createdAt","desc"));
+onSnapshot(suplenciasQ, (snap) => {
+  SUPLENCIAS = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderSuplenciaList();
+}, (err) => console.error("Error leyendo suplencias:", err));
+
+/* ============ INIT SELECTS ============ */
+function populateZoneSelect(selectEl){
+  ZONES.forEach(z=>{
+    const o = document.createElement('option');
+    o.value=z; o.textContent=z;
+    selectEl.appendChild(o);
+  });
+}
+function populateInstrumentSelect(selectEl){
+  INSTRUMENTS.forEach(i=>{
+    const o = document.createElement('option');
+    o.value=i; o.textContent=i;
+    selectEl.appendChild(o);
+  });
+}
+
+/* ============ RENDER: FILTROS Y LISTA ============ */
+function renderFilterbar(){
+  const bar = document.getElementById('filterbar');
+  bar.innerHTML = "";
+  const zonesUsed = ["Todos", ...new Set(TEACHERS.map(t=>t.zone))];
+  zonesUsed.forEach(z=>{
+    const chip = document.createElement('button');
+    chip.className = "chip" + (z===activeFilter ? " active":"");
+    chip.textContent = z;
+    chip.onclick = ()=>{ activeFilter = z; renderFilterbar(); renderTeacherList(); };
+    bar.appendChild(chip);
+  });
+}
+
+function initials(name){ return (name||"?").split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase(); }
+
+function renderTeacherList(){
+  const list = document.getElementById('teacherList');
+  const filtered = activeFilter==="Todos" ? TEACHERS : TEACHERS.filter(t=>t.zone===activeFilter);
+  if(filtered.length===0){
+    list.innerHTML = `<div class="empty-state"><div class="icon">♪</div><p>Todavía no hay profesores en esta zona.<br>Sé el primero en publicar tu perfil.</p></div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(t=>{
+    const revealed = revealedContacts.has(t.id);
+    const contactHtml = revealed
+      ? `<a class="contact-revealed" href="https://wa.me/${(t.phone||'').replace(/\\D/g,'')}" target="_blank" onclick="event.stopPropagation()">💬 ${t.phone}</a>`
+      : `<button class="btn btn-teal contact-btn" onclick="event.stopPropagation(); revealContact('${t.id}')">Ver contacto · ${COSTO_VER_CONTACTO} créditos</button>`;
+    return `
+    <div class="teacher-card">
+      <div class="avatar" style="${t.photo ? `background-image:url(${t.photo})`:''}">${t.photo?'':initials(t.name)}</div>
+      <div class="tcard-body">
+        <div class="tcard-top">
+          <div class="tcard-name">${t.name}</div>
+          <div class="tcard-rate">S/ ${t.rate}/h</div>
+        </div>
+        <div class="tcard-meta">${(t.instruments||[]).join(' · ')}</div>
+        <div class="tcard-tags">
+          <span class="tag-pill zone">${t.zone}</span>
+          <span class="tag-pill">${MODALIDADES.find(m=>m.id===t.modalidad)?.label || t.modalidad}</span>
+        </div>
+        <div class="contact-row">${contactHtml}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ============ BLINDAJE COMERCIAL: VER CONTACTO POR CRÉDITOS ============ */
+window.revealContact = async function(teacherId){
+  if(!currentUser){ toast('Inicia sesión para contactar profesores', true); openAuthModal('login'); return; }
+  if(revealedContacts.has(teacherId)) return;
+
+  if((currentUser.creditos||0) < COSTO_VER_CONTACTO){
+    toast(`Te faltan créditos. Necesitas ${COSTO_VER_CONTACTO}, tienes ${currentUser.creditos||0}.`, true);
+    openAccountOrAuth();
+    return;
+  }
+
+  const ok = confirm(`Usar ${COSTO_VER_CONTACTO} créditos para ver el contacto de este profesor?`);
+  if(!ok) return;
+
+  try{
+    await updateDoc(doc(db, "usuarios", currentUser.uid), { creditos: increment(-COSTO_VER_CONTACTO) });
+    currentUser.creditos -= COSTO_VER_CONTACTO;
+    revealedContacts.add(teacherId);
+    renderAuthWidget();
+    renderTeacherList();
+    toast('Contacto desbloqueado 🎵');
+  }catch(e){
+    console.error(e);
+    toast('No se pudo descontar créditos. Intenta de nuevo.', true);
+  }
+}
+
+/* ============ NAV ============ */
+window.switchView = function(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  document.querySelectorAll('.navbtn').forEach(b=>b.classList.remove('active'));
+  const btn = document.querySelector(`.navbtn[data-nav="${name}"]`);
+  if(btn) btn.classList.add('active');
+  if(name==='ensenar') renderMyProfilePreview();
+}
+
+window.goSuplencias = function(){
+  if(!currentUser){ toast('Inicia sesión para ver la bolsa de suplencias', true); openAuthModal('login'); return; }
+  if(currentUser.role !== 'profesor'){ toast('La bolsa de suplencias es exclusiva para profesores del gremio', true); return; }
+  switchView('suplencias');
+}
+
+/* ============ WIZARD (crear perfil de profesor) ============ */
+const STEPS = ['nombre','foto','instrumentos','zona','tarifa','modalidad','bio','video','contacto','preview'];
+let stepIndex = 0;
+let draft = {name:"",photo:"",instruments:[],zone:"",rate:"",modalidad:"",bio:"",videoUrl:"",phone:"",email:"",pass:""};
+
+window.startWizard = function(){
+  draft = {name:"",photo:"",instruments:[],zone:"",rate:"",modalidad:"",bio:"",videoUrl:"",phone:"",email:"",pass:""};
+  stepIndex = 0;
+  switchView('wizard');
+  renderStep();
+}
+
+function renderProgress(){
+  const wrap = document.getElementById('staffProgress');
+  const total = STEPS.length;
+  let html = `<div class="sline"></div><div class="sline"></div><div class="sline"></div>`;
+  const spacing = 100/(total+1);
+  STEPS.forEach((s,i)=>{
+    const left = spacing*(i+1);
+    let cls = 'note';
+    if(i<stepIndex) cls+=' done';
+    if(i===stepIndex) cls+=' current';
+    html += `<div class="${cls}" style="left:${left}%"></div>`;
+  });
+  wrap.innerHTML = html;
+}
+
+window.prevStep = function(){
+  if(stepIndex===0){ switchView('ensenar'); return; }
+  stepIndex--; renderStep();
+}
+function nextStep(){ if(stepIndex < STEPS.length-1){ stepIndex++; renderStep(); } }
+
+window.toggleInstrument = function(inst){
+  const i = draft.instruments.indexOf(inst);
+  if(i>-1) draft.instruments.splice(i,1); else draft.instruments.push(inst);
+  renderStep();
+}
+
+window.setModalidad = function(id){ draft.modalidad = id; renderStep(); }
+
+function renderStep(){
+  renderProgress();
+  const step = STEPS[stepIndex];
+  const c = document.getElementById('stepContainer');
+  let html = "";
+
+  if(step==='nombre'){
+    html = `<div class="step"><div class="step-eyebrow mono">Paso 1 de ${STEPS.length}</div><h2>¿Cómo te llamas?</h2><div class="hint">Así te van a ver los alumnos.</div>
+      <div class="field"><label>Nombre completo</label><input type="text" id="in_name" value="${draft.name}" placeholder="Ej. César Torres"></div></div>`;
+  }
+  else if(step==='foto'){
+    html = `<div class="step"><div class="step-eyebrow mono">Paso 2 de ${STEPS.length}</div><h2>Sube una foto tuya</h2><div class="hint">Una foto clara aumenta la confianza del alumno.</div>
+      <label class="photo-upload" for="in_photo">${draft.photo ? `<img src="${draft.photo}">` : `<span class="ic">📷</span><span>Toca para subir foto</span>`}</label>
+      <input type="file" id="in_photo" accept="image/*" style="display:none"></div>`;
+  }
+  else if(step==='instrumentos'){
+    html = `<div class="step"><div class="step-eyebrow mono">Paso 3 de ${STEPS.length}</div><h2>¿Qué enseñas?</h2><div class="hint">Elige uno o varios instrumentos.</div>
+      <div class="option-grid">${INSTRUMENTS.map(i=>`<div class="option-card ${draft.instruments.includes(i)?'selected':''}" onclick="toggleInstrument('${i}')">${i}</div>`).join('')}</div></div>`;
+  }
+  else if(step==='zona'){
+    html = `<div class="step"><div class="step-eyebrow mono">Paso 4 de ${STEPS.length}</div><h2>¿Desde qué zona enseñas?</h2><div class="hint">Así te encuentran alumnos cerca, sin gastar de más en pasaje.</div>
+      <div class="field"><label>Distrito</label><select id="in_zone"><option value="">Selecciona tu distrito</option>${ZONES.map(z=>`<option value="${z}" ${draft.zone===z?'selected':''}>${z}</option>`).join('')}</select></div></div>`;
+  }
+  else if(step==='tarifa'){
+    html = `<div class="step"><div class="step-eyebrow mono">Paso 5 de ${STEPS.length}</div><h2>¿Cuánto cobras por hora?</h2><div class="hint">Puedes cambiarlo cuando quieras.</div>
+      <div class="field"><label>Tarifa por hora (S/)</label><input type="number" id="in_rate" value="${draft.rate}" placeholder="Ej. 40"></div></div>`;
+  }
+  else if(step==='modalidad'){
+    html = `<div class="step"><div class="step-eyebrow mono">Paso 6 de ${STEPS.length}</div><h2>¿Cómo das tus clases?</h2>
+      <div class="option-grid thirds">${MODALIDADES.map(m=>`<div class="option-card ${draft.modalidad===m.id?'selected':''}" onclick="setModalidad('${m.id}')">${m.label}</div>`).join('')}</div></div>`;
+  }
+  else if(step==='bio'){
+    html = `<div class="step"><div class="step-eyebrow mono">Paso 7 de ${STEPS.length}</div><h2>Cuéntanos tu historia, corto</h2><div class="hint">Formación, experiencia. Máximo 160 caracteres.</div>
+      <div class="field"><label>Breve historia</label><textarea id="in_bio" maxlength="160" oninput="document.getElementById('bioCount').textContent=this.value.length">${draft.bio}</textarea><div class="counter"><span id="bioCount">${draft.bio.length}</span>/160</div></div></div>`;
+  }
+  else if(step==='video'){
+    html = `<div class="step"><div class="step-eyebrow mono">Paso 8 de ${STEPS.length}</div><h2>¿Tienes un video tocando o enseñando?</h2><div class="hint">Opcional. Pega el link de YouTube o Drive.</div>
+      <div class="field"><label>Link del video</label><input type="url" id="in_video" value="${draft.videoUrl}" placeholder="https://youtube.com/..."></div></div>`;
+  }
+  else if(step==='contacto'){
+    html = `<div class="step"><div class="step-eyebrow mono">Paso 9 de ${STEPS.length}</div><h2>Crea tu cuenta de profesor</h2><div class="hint">La usarás para publicar suplencias y administrar tu perfil.</div>
+      <div class="field"><label>WhatsApp</label><input type="tel" id="in_phone" value="${draft.phone}" placeholder="+51 999 999 999"></div>
+      <div class="field"><label>Correo</label><input type="email" id="in_email" value="${draft.email}" placeholder="tucorreo@ejemplo.com"></div>
+      <div class="field"><label>Contraseña</label><input type="password" id="in_pass" placeholder="Mínimo 6 caracteres"></div></div>`;
+  }
+  else if(step==='preview'){
+    html = `<div class="step"><div class="step-eyebrow mono">Listo</div><h2>Así se ve tu perfil</h2><div class="hint">Revisa que todo esté bien antes de publicarlo.</div>
+      <div class="preview-wrap">
+        <div class="preview-badge mono">Vista previa</div>
+        <div class="teacher-card" style="background:transparent;border:none;padding:0;">
+          <div class="avatar" style="${draft.photo?`background-image:url(${draft.photo})`:''}">${draft.photo?'':(draft.name?initials(draft.name):'?')}</div>
+          <div class="tcard-body">
+            <div class="tcard-top"><div class="tcard-name">${draft.name || 'Tu nombre'}</div><div class="tcard-rate">S/ ${draft.rate||'--'}/h</div></div>
+            <div class="tcard-meta">${draft.instruments.join(' · ')||'Instrumentos'}</div>
+            <div class="tcard-tags"><span class="tag-pill zone">${draft.zone||'Zona'}</span><span class="tag-pill">${draft.modalidad ? MODALIDADES.find(m=>m.id===draft.modalidad).label : 'Modalidad'}</span></div>
+          </div>
+        </div>
+        ${draft.bio ? `<p style="font-size:13px;color:var(--text-dim);margin-top:14px;line-height:1.5;">${draft.bio}</p>`:''}
+      </div>
+      <button class="btn btn-primary btn-block btn-lg" onclick="publishProfile()">Publicar mi perfil</button></div>`;
+  }
+
+  c.innerHTML = html;
+
+  if(step!=='preview'){
+    const footer = document.createElement('div');
+    footer.className = 'step-footer';
+    footer.innerHTML = `<button class="btn btn-primary btn-block btn-lg" id="nextBtn" onclick="collectStepAndNext()">Continuar</button>`;
+    c.appendChild(footer);
+  }
+
+  if(step==='foto'){
+    document.getElementById('in_photo').addEventListener('change', function(e){
+      const file = e.target.files[0];
+      if(file){
+        const reader = new FileReader();
+        reader.onload = function(ev){ draft.photo = ev.target.result; renderStep(); };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+}
+
+window.collectStepAndNext = function(){
+  const step = STEPS[stepIndex];
+  if(step==='nombre'){
+    const v = document.getElementById('in_name').value.trim();
+    if(!v){ shake('in_name'); return; }
+    draft.name = v;
+  }
+  else if(step==='instrumentos'){
+    if(draft.instruments.length===0){ toast('Elige al menos un instrumento', true); return; }
+  }
+  else if(step==='zona'){
+    const v = document.getElementById('in_zone').value;
+    if(!v){ shake('in_zone'); return; }
+    draft.zone = v;
+  }
+  else if(step==='tarifa'){
+    const v = document.getElementById('in_rate').value;
+    if(!v){ shake('in_rate'); return; }
+    draft.rate = v;
+  }
+  else if(step==='modalidad'){
+    if(!draft.modalidad){ toast('Elige una modalidad', true); return; }
+  }
+  else if(step==='bio'){
+    draft.bio = document.getElementById('in_bio').value.trim();
+  }
+  else if(step==='video'){
+    draft.videoUrl = document.getElementById('in_video').value.trim();
+  }
+  else if(step==='contacto'){
+    const phone = document.getElementById('in_phone').value.trim();
+    const email = document.getElementById('in_email').value.trim();
+    const pass = document.getElementById('in_pass').value;
+    if(!phone){ shake('in_phone'); return; }
+    if(!email || !email.includes('@')){ shake('in_email'); return; }
+    if(!pass || pass.length<6){ shake('in_pass'); return; }
+    draft.phone = phone; draft.email = email; draft.pass = pass;
+  }
+  nextStep();
+}
+
+function shake(id){
+  const el = document.getElementById(id);
+  el.style.borderColor = 'var(--danger)';
+  setTimeout(()=>{ el.style.borderColor=''; }, 900);
+}
+
+/* ============ PUBLICAR PERFIL: crea cuenta Auth + usuarios + profesores ============ */
+window.publishProfile = async function(){
+  try{
+    const cred = await createUserWithEmailAndPassword(auth, draft.email, draft.pass);
+    const uid = cred.user.uid;
+
+    await setDoc(doc(db, "usuarios", uid), {
+      name: draft.name,
+      email: draft.email,
+      role: "profesor",
+      creditos: CREDITOS_INICIALES,
+      zone: draft.zone,
+      phone: draft.phone,
+      createdAt: serverTimestamp()
+    });
+
+    await setDoc(doc(db, "profesores", uid), {
+      name: draft.name,
+      instruments: draft.instruments,
+      zone: draft.zone,
+      rate: Number(draft.rate),
+      modalidad: draft.modalidad,
+      bio: draft.bio,
+      videoUrl: draft.videoUrl,
+      phone: draft.phone,
+      photo: draft.photo,
+      createdAt: serverTimestamp()
+    });
+
+    currentUser = { uid, email: draft.email, name: draft.name, role: "profesor", creditos: CREDITOS_INICIALES, zone: draft.zone, phone: draft.phone };
+    currentEditingTeacher = { id: uid, ...draft, rate: Number(draft.rate) };
+    renderAuthWidget();
+    renderNavLock();
+    switchView('ensenar');
+    renderMyProfilePreview();
+    toast('¡Tu perfil ya está publicado! 🎵');
+  }catch(e){
+    console.error(e);
+    let msg = 'No se pudo publicar tu perfil.';
+    if(e.code === 'auth/email-already-in-use') msg = 'Ese correo ya tiene una cuenta. Inicia sesión en vez de crear una nueva.';
+    if(e.code === 'auth/invalid-api-key' || e.code === 'auth/invalid-config') msg = 'Firebase no está configurado todavía (revisa firebaseConfig).';
+    toast(msg, true);
+  }
+}
+
+function renderMyProfilePreview(){
+  const wrap = document.getElementById('myProfilePreview');
+  if(!currentEditingTeacher){ wrap.innerHTML=''; return; }
+  const t = currentEditingTeacher;
+  wrap.innerHTML = `<div class="mono" style="color:var(--text-dim);margin-bottom:10px;">Tu perfil publicado</div>
+    <div class="teacher-card">
+      <div class="avatar" style="${t.photo?`background-image:url(${t.photo})`:''}">${t.photo?'':initials(t.name)}</div>
+      <div class="tcard-body">
+        <div class="tcard-top"><div class="tcard-name">${t.name}</div><div class="tcard-rate">S/ ${t.rate}/h</div></div>
+        <div class="tcard-meta">${(t.instruments||[]).join(' · ')}</div>
+        <div class="tcard-tags"><span class="tag-pill zone">${t.zone}</span><span class="tag-pill">${MODALIDADES.find(m=>m.id===t.modalidad)?.label}</span></div>
+      </div>
+    </div>`;
+}
+
+/* ============ TOAST ============ */
+let toastTimer;
+function toast(msg, isError){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.toggle('error', !!isError);
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('show'), 3000);
+}
+
+/* ============ AUTH MODAL (login / registro alumno) ============ */
+window.openAuthModal = function(tab){
+  setAuthTab(tab || 'login');
+  document.getElementById('authModal').classList.add('active');
+}
+window.closeAuthModal = function(){ document.getElementById('authModal').classList.remove('active'); }
+window.setAuthTab = function(tab){
+  authTab = tab;
+  document.getElementById('tabLogin').classList.toggle('active', tab==='login');
+  document.getElementById('tabRegister').classList.toggle('active', tab==='register');
+  document.getElementById('authFormLogin').style.display = tab==='login' ? 'block':'none';
+  document.getElementById('authFormRegister').style.display = tab==='register' ? 'block':'none';
+}
+
+window.doLogin = async function(){
+  const email = document.getElementById('l_email').value.trim();
+  const pass = document.getElementById('l_pass').value;
+  if(!email || !pass){ toast('Completa correo y contraseña', true); return; }
+  try{
+    await signInWithEmailAndPassword(auth, email, pass);
+    closeAuthModal();
+    toast('¡Bienvenido de nuevo!');
+  }catch(e){
+    console.error(e);
+    toast('Correo o contraseña incorrectos', true);
+  }
+}
+
+window.saveStudent = async function(){
+  const name = document.getElementById('s_name').value.trim();
+  const email = document.getElementById('s_email').value.trim();
+  const pass = document.getElementById('s_pass').value;
+  const phone = document.getElementById('s_phone').value.trim();
+  const zone = document.getElementById('s_zone').value;
+  if(!name || !email || !pass || pass.length<6){ toast('Completa nombre, correo y una contraseña de mínimo 6 caracteres', true); return; }
+
+  try{
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    await setDoc(doc(db, "usuarios", cred.user.uid), {
+      name, email, role: "alumno", creditos: CREDITOS_INICIALES, phone, zone, createdAt: serverTimestamp()
+    });
+    closeAuthModal();
+    toast('¡Cuenta creada! Ya puedes contactar profesores.');
+  }catch(e){
+    console.error(e);
+    let msg = 'No se pudo crear tu cuenta.';
+    if(e.code === 'auth/email-already-in-use') msg = 'Ese correo ya tiene cuenta. Inicia sesión.';
+    toast(msg, true);
+  }
+}
+
+/* ============ CUENTA (usuario logueado) ============ */
+window.openAccountOrAuth = function(){
+  if(currentUser){ openAccountModal(); } else { openAuthModal('login'); }
+}
+function openAccountModal(){
+  document.getElementById('acc_name').textContent = currentUser.name || currentUser.email;
+  document.getElementById('acc_role').textContent = currentUser.role === 'profesor' ? 'Profesor del gremio' : 'Alumno';
+  document.getElementById('acc_credits').textContent = currentUser.creditos ?? 0;
+  document.getElementById('accountModal').classList.add('active');
+}
+window.closeAccountModal = function(){ document.getElementById('accountModal').classList.remove('active'); }
+
+window.doLogout = async function(){
+  await signOut(auth);
+  closeAccountModal();
+  switchView('explorar');
+  toast('Sesión cerrada');
+}
+
+/* Recarga de créditos — DEMO. En producción, esto debe ir detrás de una
+   pasarela de pago real (Culqi, Mercado Pago, etc.) antes de acreditar. */
+window.rechargeCredits = async function(){
+  if(!currentUser) return;
+  try{
+    await updateDoc(doc(db, "usuarios", currentUser.uid), { creditos: increment(50) });
+    currentUser.creditos += 50;
+    document.getElementById('acc_credits').textContent = currentUser.creditos;
+    renderAuthWidget();
+    toast('+50 créditos agregados (demo)');
+  }catch(e){ console.error(e); toast('No se pudo recargar créditos', true); }
+}
+
+/* ============ MÓDULO GREMIO: BOLSA DE SUPLENCIAS ============ */
+window.openSuplenciaForm = function(){
+  if(!currentUser || currentUser.role !== 'profesor'){ toast('Solo profesores del gremio pueden publicar suplencias', true); return; }
+  document.getElementById('suplenciaModal').classList.add('active');
+}
+window.closeSuplenciaForm = function(){ document.getElementById('suplenciaModal').classList.remove('active'); }
+
+window.submitSuplencia = async function(){
+  const instrument = document.getElementById('sup_instrument').value;
+  const zone = document.getElementById('sup_zone').value;
+  const monto = document.getElementById('sup_monto').value;
+  const msg = document.getElementById('sup_msg').value.trim();
+  if(!instrument || !zone || !monto){ toast('Completa instrumento, zona y monto', true); return; }
+
+  if((currentUser.creditos||0) < COSTO_PUBLICAR_SUPLENCIA){
+    toast(`Necesitas ${COSTO_PUBLICAR_SUPLENCIA} créditos para publicar`, true);
+    return;
+  }
+  const ok = confirm(`Publicar esta suplencia cuesta ${COSTO_PUBLICAR_SUPLENCIA} créditos. ¿Continuar?`);
+  if(!ok) return;
+
+  try{
+    await updateDoc(doc(db, "usuarios", currentUser.uid), { creditos: increment(-COSTO_PUBLICAR_SUPLENCIA) });
+    currentUser.creditos -= COSTO_PUBLICAR_SUPLENCIA;
+
+    await addDoc(collection(db, "suplencias"), {
+      teacherId: currentUser.uid,
+      teacherName: currentUser.name,
+      teacherPhone: currentUser.phone || '',
+      instrument, zone, monto: Number(monto), mensaje: msg,
+      estado: "abierta",
+      postulantes: [],
+      createdAt: serverTimestamp()
+    });
+
+    renderAuthWidget();
+    closeSuplenciaForm();
+    toast('Suplencia publicada al gremio 🎺');
+  }catch(e){ console.error(e); toast('No se pudo publicar la suplencia', true); }
+}
+
+function renderSuplenciaList(){
+  const list = document.getElementById('suplenciaList');
+  if(SUPLENCIAS.length===0){
+    list.innerHTML = `<div class="empty-state"><div class="icon">⚑</div><p>No hay suplencias abiertas por ahora.</p></div>`;
+    return;
+  }
+  list.innerHTML = SUPLENCIAS.map(s=>{
+    const yaPostulado = currentUser && (s.postulantes||[]).includes(currentUser.uid);
+    const esMia = currentUser && s.teacherId === currentUser.uid;
+    return `
+    <div class="sup-card">
+      <div class="sup-top">
+        <div class="sup-title">${s.instrument} · ${s.zone}</div>
+        <div class="sup-monto">S/ ${s.monto}</div>
+      </div>
+      <div class="sup-meta">Publicado por ${s.teacherName}</div>
+      ${s.mensaje ? `<div class="sup-msg">${s.mensaje}</div>` : ''}
+      ${esMia
+        ? `<div class="sup-postulantes">${(s.postulantes||[]).length} colega(s) postulado(s)</div>`
+        : `<button class="btn ${yaPostulado?'btn-ghost':'btn-teal'} btn-sm" style="margin-top:10px;" ${yaPostulado?'disabled':''} onclick="postularSuplencia('${s.id}')">${yaPostulado?'Ya te postulaste':'Postularme'}</button>`
+      }
+    </div>`;
+  }).join('');
+}
+
+window.postularSuplencia = async function(supId){
+  if(!currentUser || currentUser.role !== 'profesor'){ toast('Solo profesores pueden postularse', true); return; }
+  try{
+    await updateDoc(doc(db, "suplencias", supId), { postulantes: arrayUnion(currentUser.uid) });
+    toast('Te postulaste. El colega verá tu perfil para contactarte.');
+  }catch(e){ console.error(e); toast('No se pudo postular', true); }
+}
+
+/* ============ START ============ */
+populateZoneSelect(document.getElementById('s_zone'));
+populateZoneSelect(document.getElementById('sup_zone'));
+populateInstrumentSelect(document.getElementById('sup_instrument'));
+renderNavLock();
+</script>
+</body>
+</html>
