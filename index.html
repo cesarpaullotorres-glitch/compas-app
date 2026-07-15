@@ -670,12 +670,39 @@ function renderStep(){
     document.getElementById('in_photo').addEventListener('change', function(e){
       const file = e.target.files[0];
       if(file){
-        const reader = new FileReader();
-        reader.onload = function(ev){ draft.photo = ev.target.result; renderStep(); };
-        reader.readAsDataURL(file);
+        compressImage(file, 500, 0.7).then(dataUrl=>{
+          draft.photo = dataUrl;
+          renderStep();
+        }).catch(()=>{
+          toast('No se pudo procesar la foto, intenta con otra', true);
+        });
       }
     });
   }
+}
+
+/* Comprime la foto en el navegador antes de guardarla, para que quepa
+   cómodo en el límite de 1MB por documento de Firestore. */
+function compressImage(file, maxWidth, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 window.collectStepAndNext = function(){
