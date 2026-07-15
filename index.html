@@ -192,6 +192,16 @@
   .sup-msg{font-size:13px;color:var(--text-dim);margin-top:8px;line-height:1.4;}
   .sup-postulantes{font-size:11px;color:var(--teal-bright);margin-top:8px;}
 
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px;}
+  .stat-card{background:var(--ink-2);border-radius:var(--radius);padding:16px;border:1px solid rgba(244,239,228,0.06);}
+  .stat-num{font-family:'Fraunces',serif;font-size:28px;font-weight:600;color:var(--brass-bright);}
+  .stat-label{font-size:11.5px;color:var(--text-dim);margin-top:4px;}
+  .admin-section-title{font-size:13px;color:var(--text-dim);margin:24px 0 10px;font-weight:600;}
+  .admin-row{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid rgba(244,239,228,0.06);font-size:13.5px;}
+  .admin-row:last-child{border-bottom:none;}
+  .admin-row .name{color:var(--text-warm);}
+  .admin-row .meta{color:var(--text-dim);font-size:12px;}
+
   ::-webkit-scrollbar{display:none;}
 </style>
 </head>
@@ -257,6 +267,17 @@
     <div class="card-list" id="suplenciaList" style="margin-top:18px;"></div>
   </div>
 
+  <!-- ===== VIEW: PANEL DE ADMINISTRADOR (oculto, solo visible para esAdmin) ===== -->
+  <div class="view" id="view-admin">
+    <div class="hero">
+      <h2>Panel</h2>
+      <p>Solo tú ves esto.</p>
+    </div>
+    <div id="adminStats">
+      <div class="empty-state"><div class="icon">◐</div><p>Cargando estadísticas…</p></div>
+    </div>
+  </div>
+
   <div class="bottomnav">
     <button class="navbtn active" data-nav="explorar" onclick="switchView('explorar')"><span class="ic">♪</span>Explorar</button>
     <button class="navbtn" data-nav="ensenar" onclick="switchView('ensenar')"><span class="ic">✎</span>Enseñar</button>
@@ -304,6 +325,7 @@
       <div class="hint" id="acc_role">—</div>
       <div class="credits-badge" style="width:fit-content;margin-bottom:18px;">✦ <span id="acc_credits">0</span> créditos</div>
       <button class="btn btn-teal btn-block" onclick="rechargeCredits()">Recargar 50 créditos (demo)</button>
+      <button id="acc_admin_btn" class="btn btn-ghost btn-block" style="margin-top:10px;display:none;" onclick="goAdmin()">Panel de administrador</button>
       <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="doLogout()">Cerrar sesión</button>
       <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="closeAccountModal()">Cerrar</button>
     </div>
@@ -334,7 +356,7 @@
    ============================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, getDoc,
+  getFirestore, collection, doc, addDoc, setDoc, getDoc, getDocs,
   onSnapshot, query, where, orderBy, updateDoc, increment, arrayUnion, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
@@ -833,6 +855,8 @@ function openAccountModal(){
   document.getElementById('acc_name').textContent = currentUser.name || currentUser.email;
   document.getElementById('acc_role').textContent = currentUser.role === 'profesor' ? 'Profesor del gremio' : 'Alumno';
   document.getElementById('acc_credits').textContent = currentUser.creditos ?? 0;
+  const adminBtn = document.getElementById('acc_admin_btn');
+  if(adminBtn) adminBtn.style.display = currentUser.esAdmin ? 'block' : 'none';
   document.getElementById('accountModal').classList.add('active');
 }
 window.closeAccountModal = function(){ document.getElementById('accountModal').classList.remove('active'); }
@@ -929,6 +953,59 @@ window.postularSuplencia = async function(supId){
     await updateDoc(doc(db, "suplencias", supId), { postulantes: arrayUnion(currentUser.uid) });
     toast('Te postulaste. El colega verá tu perfil para contactarte.');
   }catch(e){ console.error(e); toast('No se pudo postular', true); }
+}
+
+/* ============ PANEL DE ADMIN (lectura única, no tiempo real, para cuidar la cuota gratuita) ============ */
+window.goAdmin = function(){
+  if(!currentUser || !currentUser.esAdmin){ toast('No tienes acceso a esta sección', true); return; }
+  closeAccountModal();
+  switchView('admin');
+  loadAdminStats();
+}
+
+window.loadAdminStats = async function(){
+  const wrap = document.getElementById('adminStats');
+  wrap.innerHTML = `<div class="empty-state"><div class="icon">◐</div><p>Cargando estadísticas…</p></div>`;
+  try{
+    const [usuariosSnap, suplenciasSnap] = await Promise.all([
+      getDocs(collection(db, "usuarios")),
+      getDocs(collection(db, "suplencias"))
+    ]);
+
+    let totalProfesores = 0, totalAlumnos = 0, creditosTotales = 0;
+    usuariosSnap.forEach(d=>{
+      const u = d.data();
+      if(u.role === 'profesor') totalProfesores++;
+      if(u.role === 'alumno') totalAlumnos++;
+      creditosTotales += (u.creditos || 0);
+    });
+
+    let suplenciasAbiertas = 0;
+    const suplenciasList = [];
+    suplenciasSnap.forEach(d=>{
+      const s = d.data();
+      if(s.estado === 'abierta') suplenciasAbiertas++;
+      suplenciasList.push(s);
+    });
+
+    const recientes = [...TEACHERS].slice(0,6);
+
+    wrap.innerHTML = `
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-num">${totalProfesores}</div><div class="stat-label">Profesores</div></div>
+        <div class="stat-card"><div class="stat-num">${totalAlumnos}</div><div class="stat-label">Alumnos</div></div>
+        <div class="stat-card"><div class="stat-num">${creditosTotales}</div><div class="stat-label">Créditos en circulación</div></div>
+        <div class="stat-card"><div class="stat-num">${suplenciasAbiertas}</div><div class="stat-label">Suplencias abiertas</div></div>
+      </div>
+      <div class="admin-section-title mono">Profesores recientes</div>
+      ${recientes.length===0 ? '<div class="empty-state"><p>Todavía no hay profesores.</p></div>' :
+        recientes.map(t=>`<div class="admin-row"><span class="name">${t.name}</span><span class="meta">${t.zone}</span></div>`).join('')}
+      <button class="btn btn-ghost btn-block" style="margin-top:20px;" onclick="loadAdminStats()">↻ Actualizar</button>
+    `;
+  }catch(e){
+    console.error(e);
+    wrap.innerHTML = `<div class="empty-state"><div class="icon">⚠</div><p>No se pudo cargar el panel.<br>Revisa que tu cuenta tenga esAdmin activado.</p></div>`;
+  }
 }
 
 /* ============ START ============ */
