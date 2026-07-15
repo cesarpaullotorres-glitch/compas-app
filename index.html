@@ -116,6 +116,7 @@
   .contact-row{margin-top:10px;}
   .contact-btn{width:100%;justify-content:center;font-size:12.5px;padding:9px 12px;}
   .contact-revealed{display:flex;align-items:center;gap:8px;background:rgba(47,110,104,0.18);border-radius:999px;padding:9px 12px;font-size:12.5px;color:var(--teal-bright);text-decoration:none;justify-content:center;font-weight:600;}
+  .verified-badge{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--teal);color:var(--text-warm);font-size:10px;vertical-align:middle;}
 
   .empty-state{text-align:center;padding:50px 20px;color:var(--text-dim);}
   .empty-state .icon{font-size:34px;margin-bottom:10px;opacity:0.6;}
@@ -347,6 +348,18 @@
     </div>
   </div>
 
+  <!-- ===== MODAL: RESERVAR CLASE (pago manual) ===== -->
+  <div class="modal-overlay" id="reservaModal">
+    <div class="modal">
+      <h3>Reservar clase</h3>
+      <div id="reserva_body"></div>
+      <div class="cta-row" style="margin-top:18px;">
+        <button class="btn btn-ghost btn-block" onclick="closeReservaModal()">Cancelar</button>
+        <button class="btn btn-primary btn-block" onclick="submitReserva()">Ya pagué</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script type="module">
@@ -382,8 +395,17 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 const CREDITOS_INICIALES = 20;
-const COSTO_VER_CONTACTO = 5;
 const COSTO_PUBLICAR_SUPLENCIA = 10;
+const COMISION_PORCENTAJE = 0.10; // 10% para la app, 90% para el profesor
+
+/* Datos de pago manual - EDITA ESTO con tus datos reales */
+const PAGO_YAPE = "991 741 746";
+const PAGO_NOMBRE = "César Paullo Torres";
+
+/* ntfy.sh: notificaciones gratis sin backend. Cambia este topic por uno
+   difícil de adivinar (nadie más debe conocerlo), e instala la app ntfy
+   o suscríbete desde https://ntfy.sh/TU_TOPIC en tu navegador. */
+const NTFY_TOPIC = "compas-aacfe-reservas-x7f2q";
 
 /* ============ DATOS BASE (catálogos, no van a Firestore) ============ */
 const ZONES = ["Callao","Cercado de Lima","San Miguel","Pueblo Libre","Jesús María","Magdalena","Breña","La Victoria","Surquillo","Miraflores","San Isidro","Barranco","Surco","San Borja","La Molina","Los Olivos","San Martín de Porres","Comas","Independencia","Ate","San Juan de Lurigancho","Villa El Salvador"];
@@ -396,6 +418,15 @@ let activeFilter = "Todos";
 let currentEditingTeacher = null;
 let currentUser = null;   // { uid, email, name, role, creditos, zone, phone }
 let authTab = 'login';
+/* ============ NOTIFICACIÓN A CÉSAR (ntfy.sh, gratis, sin backend) ============ */
+function notificarCesar(titulo, mensaje){
+  fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+    method: 'POST',
+    body: mensaje,
+    headers: { 'Title': titulo, 'Priority': 'high', 'Tags': 'musical_note' }
+  }).catch(()=>{}); // si falla, no interrumpe el flujo del usuario
+}
+
 let revealedContacts = new Set();
 
 /* ============ AUTH STATE ============ */
@@ -413,6 +444,7 @@ onAuthStateChanged(auth, async (user) => {
   renderAuthWidget();
   renderNavLock();
   renderTeacherList();
+  loadMyReservas();
 });
 
 function renderAuthWidget(){
@@ -489,15 +521,16 @@ function renderTeacherList(){
   }
   list.innerHTML = filtered.map(t=>{
     const revealed = revealedContacts.has(t.id);
+    const verificado = (t.clasesCompletadas||0) >= 3;
     const contactHtml = revealed
-      ? `<a class="contact-revealed" href="https://wa.me/${(t.phone||'').replace(/\\D/g,'')}" target="_blank" onclick="event.stopPropagation()">💬 ${t.phone}</a>`
-      : `<button class="btn btn-teal contact-btn" onclick="event.stopPropagation(); revealContact('${t.id}')">Ver contacto · ${COSTO_VER_CONTACTO} créditos</button>`;
+      ? `<a class="contact-revealed" href="https://wa.me/${(t.phone||'').replace(/\D/g,'')}" target="_blank" onclick="event.stopPropagation()">💬 ${t.phone}</a>`
+      : `<button class="btn btn-teal contact-btn" onclick="event.stopPropagation(); openReservaModal('${t.id}')">Reservar clase</button>`;
     return `
     <div class="teacher-card">
       <div class="avatar" style="${t.photo ? `background-image:url(${t.photo})`:''}">${t.photo?'':initials(t.name)}</div>
       <div class="tcard-body">
         <div class="tcard-top">
-          <div class="tcard-name">${t.name}</div>
+          <div class="tcard-name">${t.name}${verificado ? ' <span class="verified-badge" title="Verificado: 3+ clases en Compás">✓</span>' : ''}</div>
           <div class="tcard-rate">S/ ${t.rate}/h</div>
         </div>
         <div class="tcard-meta">${(t.instruments||[]).join(' · ')}</div>
@@ -511,31 +544,103 @@ function renderTeacherList(){
   }).join('');
 }
 
-/* ============ BLINDAJE COMERCIAL: VER CONTACTO POR CRÉDITOS ============ */
-window.revealContact = async function(teacherId){
-  if(!currentUser){ toast('Inicia sesión para contactar profesores', true); openAuthModal('login'); return; }
-  if(revealedContacts.has(teacherId)) return;
+/* ============ RESERVAS: pago manual "con cara de pasarela" ============ */
+let reservaTeacher = null;
+let comprobanteData = null;
 
-  if((currentUser.creditos||0) < COSTO_VER_CONTACTO){
-    toast(`Te faltan créditos. Necesitas ${COSTO_VER_CONTACTO}, tienes ${currentUser.creditos||0}.`, true);
-    openAccountOrAuth();
-    return;
-  }
+window.openReservaModal = function(teacherId){
+  if(!currentUser){ toast('Inicia sesión para reservar una clase', true); openAuthModal('login'); return; }
+  if(currentUser.role !== 'alumno'){ toast('Solo los alumnos pueden reservar clases', true); return; }
+  reservaTeacher = TEACHERS.find(t=>t.id===teacherId);
+  if(!reservaTeacher) return;
+  comprobanteData = null;
 
-  const ok = confirm(`Usar ${COSTO_VER_CONTACTO} créditos para ver el contacto de este profesor?`);
-  if(!ok) return;
+  const comision = Math.round(reservaTeacher.rate * COMISION_PORCENTAJE * 100)/100;
+  document.getElementById('reserva_body').innerHTML = `
+    <div class="preview-wrap" style="margin-bottom:18px;">
+      <div class="preview-badge mono">Vas a reservar con</div>
+      <div class="tcard-name" style="font-size:17px;">${reservaTeacher.name}</div>
+      <div class="tcard-meta" style="margin-top:4px;">${(reservaTeacher.instruments||[]).join(' · ')}</div>
+      <div style="margin-top:14px;font-family:'IBM Plex Mono';font-size:13px;color:var(--text-dim);">
+        Precio de la clase: <span style="color:var(--brass-bright);">S/ ${reservaTeacher.rate}</span>
+      </div>
+    </div>
+    <div class="step-eyebrow mono" style="margin-bottom:10px;">Paso 1 · Transfiere</div>
+    <div class="hint" style="margin-bottom:14px;">Yapea o transfiere el monto completo a:</div>
+    <div class="admin-row"><span class="name">Yape / Plin</span><span class="meta mono">${PAGO_YAPE}</span></div>
+    <div class="admin-row"><span class="name">A nombre de</span><span class="meta">${PAGO_NOMBRE}</span></div>
+    <div class="step-eyebrow mono" style="margin:18px 0 10px;">Paso 2 · Sube tu comprobante</div>
+    <label class="photo-upload" for="reserva_comprobante" style="aspect-ratio:2.2;">
+      <span class="ic">🧾</span><span id="comprobante_label">Toca para subir la captura</span>
+    </label>
+    <input type="file" id="reserva_comprobante" accept="image/*" style="display:none">
+  `;
+  document.getElementById('reserva_comprobante').addEventListener('change', function(e){
+    const file = e.target.files[0];
+    if(file){
+      compressImage(file, 600, 0.7).then(dataUrl=>{
+        comprobanteData = dataUrl;
+        document.getElementById('comprobante_label').textContent = '✓ Comprobante listo';
+      });
+    }
+  });
+  document.getElementById('reservaModal').classList.add('active');
+}
+
+window.closeReservaModal = function(){ document.getElementById('reservaModal').classList.remove('active'); }
+
+window.submitReserva = async function(){
+  if(!reservaTeacher || !currentUser) return;
+  if(!comprobanteData){ toast('Sube tu comprobante de pago antes de continuar', true); return; }
 
   try{
-    await updateDoc(doc(db, "usuarios", currentUser.uid), { creditos: increment(-COSTO_VER_CONTACTO) });
-    currentUser.creditos -= COSTO_VER_CONTACTO;
-    revealedContacts.add(teacherId);
-    renderAuthWidget();
-    renderTeacherList();
-    toast('Contacto desbloqueado 🎵');
+    const comision = Math.round(reservaTeacher.rate * COMISION_PORCENTAJE * 100)/100;
+    const gananciaProfesor = reservaTeacher.rate - comision;
+
+    await addDoc(collection(db, "reservas"), {
+      alumnoId: currentUser.uid,
+      alumnoNombre: currentUser.name,
+      alumnoPhone: currentUser.phone || '',
+      profesorId: reservaTeacher.id,
+      profesorNombre: reservaTeacher.name,
+      profesorPhone: reservaTeacher.phone || '',
+      precio: reservaTeacher.rate,
+      comisionApp: comision,
+      gananciaProfesor,
+      comprobante: comprobanteData,
+      estado: 'pendiente_pago',
+      pagadoAProfesor: false,
+      createdAt: serverTimestamp()
+    });
+
+    notificarCesar(
+      '🎵 Nueva reserva en Compás',
+      `${currentUser.name} quiere reservar con ${reservaTeacher.name} · S/ ${reservaTeacher.rate}. Revisa el panel para confirmar el pago.`
+    );
+
+    closeReservaModal();
+    toast('¡Listo! En cuanto confirmemos tu pago verás el contacto aquí mismo.');
   }catch(e){
     console.error(e);
-    toast('No se pudo descontar créditos. Intenta de nuevo.', true);
+    toast('No se pudo enviar la reserva, intenta de nuevo', true);
   }
+}
+
+/* Carga las reservas ya pagadas del alumno para revelar el contacto correspondiente */
+async function loadMyReservas(){
+  if(!currentUser || currentUser.role !== 'alumno') return;
+  try{
+    const q = query(collection(db,"reservas"), where("alumnoId","==",currentUser.uid));
+    const snap = await getDocs(q);
+    revealedContacts = new Set();
+    snap.forEach(d=>{
+      const r = d.data();
+      if(r.estado === 'pago_confirmado' || r.estado === 'completada'){
+        revealedContacts.add(r.profesorId);
+      }
+    });
+    renderTeacherList();
+  }catch(e){ console.error(e); }
 }
 
 /* ============ NAV ============ */
@@ -994,9 +1099,11 @@ window.loadAdminStats = async function(){
   const wrap = document.getElementById('adminStats');
   wrap.innerHTML = `<div class="empty-state"><div class="icon">◐</div><p>Cargando estadísticas…</p></div>`;
   try{
-    const [usuariosSnap, suplenciasSnap] = await Promise.all([
+    const [usuariosSnap, suplenciasSnap, profesoresSnap, reservasSnap] = await Promise.all([
       getDocs(collection(db, "usuarios")),
-      getDocs(collection(db, "suplencias"))
+      getDocs(collection(db, "suplencias")),
+      getDocs(collection(db, "profesores")),
+      getDocs(collection(db, "reservas"))
     ]);
 
     let totalProfesores = 0, totalAlumnos = 0, creditosTotales = 0;
@@ -1008,30 +1115,88 @@ window.loadAdminStats = async function(){
     });
 
     let suplenciasAbiertas = 0;
-    const suplenciasList = [];
-    suplenciasSnap.forEach(d=>{
-      const s = d.data();
-      if(s.estado === 'abierta') suplenciasAbiertas++;
-      suplenciasList.push(s);
-    });
+    suplenciasSnap.forEach(d=>{ if(d.data().estado === 'abierta') suplenciasAbiertas++; });
 
-    const recientes = [...TEACHERS].slice(0,6);
+    const recientes = profesoresSnap.docs
+      .map(d=>({id:d.id, ...d.data()}))
+      .sort((a,b)=> (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
+      .slice(0,6);
+
+    const pendientes = [];
+    const porPagar = {}; // profesorId -> {nombre, monto}
+    let comisionAcumulada = 0;
+    reservasSnap.forEach(d=>{
+      const r = { id:d.id, ...d.data() };
+      if(r.estado === 'pendiente_pago') pendientes.push(r);
+      if(r.estado === 'pago_confirmado'){
+        comisionAcumulada += (r.comisionApp||0);
+        if(!r.pagadoAProfesor){
+          if(!porPagar[r.profesorId]) porPagar[r.profesorId] = {nombre:r.profesorNombre, monto:0};
+          porPagar[r.profesorId].monto += (r.gananciaProfesor||0);
+        }
+      }
+    });
 
     wrap.innerHTML = `
       <div class="stat-grid">
         <div class="stat-card"><div class="stat-num">${totalProfesores}</div><div class="stat-label">Profesores</div></div>
         <div class="stat-card"><div class="stat-num">${totalAlumnos}</div><div class="stat-label">Alumnos</div></div>
-        <div class="stat-card"><div class="stat-num">${creditosTotales}</div><div class="stat-label">Créditos en circulación</div></div>
+        <div class="stat-card"><div class="stat-num">S/ ${comisionAcumulada.toFixed(0)}</div><div class="stat-label">Comisión ganada</div></div>
         <div class="stat-card"><div class="stat-num">${suplenciasAbiertas}</div><div class="stat-label">Suplencias abiertas</div></div>
       </div>
+
+      <div class="admin-section-title mono">Reservas por confirmar (${pendientes.length})</div>
+      ${pendientes.length===0 ? '<div class="empty-state"><p>No hay reservas pendientes.</p></div>' :
+        pendientes.map(r=>`
+          <div class="sup-card">
+            <div class="sup-top"><span class="sup-title">${r.alumnoNombre} → ${r.profesorNombre}</span><span class="sup-monto">S/ ${r.precio}</span></div>
+            <div class="sup-meta">Tu comisión: S/ ${r.comisionApp} · Le toca al profesor: S/ ${r.gananciaProfesor}</div>
+            ${r.comprobante ? `<img src="${r.comprobante}" style="width:100%;border-radius:8px;margin-top:8px;">` : ''}
+            <button class="btn btn-teal btn-sm" style="margin-top:10px;" onclick="confirmarPago('${r.id}')">Confirmar pago recibido</button>
+          </div>
+        `).join('')}
+
+      <div class="admin-section-title mono">Pagos pendientes a profesores</div>
+      ${Object.keys(porPagar).length===0 ? '<div class="empty-state"><p>No debes pagos por ahora.</p></div>' :
+        Object.entries(porPagar).map(([pid,info])=>`
+          <div class="admin-row">
+            <span class="name">${info.nombre}</span>
+            <span class="meta">S/ ${info.monto.toFixed(0)}</span>
+          </div>
+        `).join('')}
+
       <div class="admin-section-title mono">Profesores recientes</div>
       ${recientes.length===0 ? '<div class="empty-state"><p>Todavía no hay profesores.</p></div>' :
         recientes.map(t=>`<div class="admin-row"><span class="name">${t.name}</span><span class="meta">${t.zone}</span></div>`).join('')}
+
       <button class="btn btn-ghost btn-block" style="margin-top:20px;" onclick="loadAdminStats()">↻ Actualizar</button>
     `;
   }catch(e){
     console.error(e);
     wrap.innerHTML = `<div class="empty-state"><div class="icon">⚠</div><p>No se pudo cargar el panel.<br>Revisa que tu cuenta tenga esAdmin activado.</p></div>`;
+  }
+}
+
+/* El admin confirma que vio el pago llegar a su Yape/cuenta.
+   Esto revela el contacto al alumno y suma la clase al contador
+   de "verificado" del profesor. */
+window.confirmarPago = async function(reservaId){
+  const ok = confirm('¿Confirmas que el pago llegó a tu cuenta?');
+  if(!ok) return;
+  try{
+    const reservaRef = doc(db, "reservas", reservaId);
+    const reservaSnap = await getDoc(reservaRef);
+    if(!reservaSnap.exists()) return;
+    const r = reservaSnap.data();
+
+    await updateDoc(reservaRef, { estado: 'pago_confirmado', confirmedAt: serverTimestamp() });
+    await updateDoc(doc(db, "profesores", r.profesorId), { clasesCompletadas: increment(1) });
+
+    toast('Pago confirmado. El alumno ya puede ver el contacto.');
+    loadAdminStats();
+  }catch(e){
+    console.error(e);
+    toast('No se pudo confirmar el pago', true);
   }
 }
 
