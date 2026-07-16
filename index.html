@@ -740,10 +740,15 @@ function renderStep(){
       <div class="field"><label>Link del video</label><input type="url" id="in_video" value="${draft.videoUrl}" placeholder="https://youtube.com/..."></div></div>`;
   }
   else if(step==='contacto'){
-    html = `<div class="step"><div class="step-eyebrow mono">Paso 9 de ${STEPS.length}</div><h2>Crea tu cuenta de profesor</h2><div class="hint">La usarás para publicar suplencias y administrar tu perfil.</div>
-      <div class="field"><label>WhatsApp</label><input type="tel" id="in_phone" value="${draft.phone}" placeholder="+51 999 999 999"></div>
-      <div class="field"><label>Correo</label><input type="email" id="in_email" value="${draft.email}" placeholder="tucorreo@ejemplo.com"></div>
-      <div class="field"><label>Contraseña</label><input type="password" id="in_pass" placeholder="Mínimo 6 caracteres"></div></div>`;
+    if(auth.currentUser){
+      html = `<div class="step"><div class="step-eyebrow mono">Paso 9 de ${STEPS.length}</div><h2>¿A qué WhatsApp te contactan?</h2><div class="hint">Ya tienes una cuenta activa — esto solo completa tu perfil de profesor, no crea una cuenta nueva.</div>
+        <div class="field"><label>WhatsApp</label><input type="tel" id="in_phone" value="${draft.phone}" placeholder="+51 999 999 999"></div></div>`;
+    } else {
+      html = `<div class="step"><div class="step-eyebrow mono">Paso 9 de ${STEPS.length}</div><h2>Crea tu cuenta de profesor</h2><div class="hint">La usarás para publicar suplencias y administrar tu perfil.</div>
+        <div class="field"><label>WhatsApp</label><input type="tel" id="in_phone" value="${draft.phone}" placeholder="+51 999 999 999"></div>
+        <div class="field"><label>Correo</label><input type="email" id="in_email" value="${draft.email}" placeholder="tucorreo@ejemplo.com"></div>
+        <div class="field"><label>Contraseña</label><input type="password" id="in_pass" placeholder="Mínimo 6 caracteres"></div></div>`;
+    }
   }
   else if(step==='preview'){
     html = `<div class="step"><div class="step-eyebrow mono">Listo</div><h2>Así se ve tu perfil</h2><div class="hint">Revisa que todo esté bien antes de publicarlo.</div>
@@ -841,12 +846,15 @@ window.collectStepAndNext = function(){
   }
   else if(step==='contacto'){
     const phone = document.getElementById('in_phone').value.trim();
-    const email = document.getElementById('in_email').value.trim();
-    const pass = document.getElementById('in_pass').value;
     if(!phone){ shake('in_phone'); return; }
-    if(!email || !email.includes('@')){ shake('in_email'); return; }
-    if(!pass || pass.length<6){ shake('in_pass'); return; }
-    draft.phone = phone; draft.email = email; draft.pass = pass;
+    draft.phone = phone;
+    if(!auth.currentUser){
+      const email = document.getElementById('in_email').value.trim();
+      const pass = document.getElementById('in_pass').value;
+      if(!email || !email.includes('@')){ shake('in_email'); return; }
+      if(!pass || pass.length<6){ shake('in_pass'); return; }
+      draft.email = email; draft.pass = pass;
+    }
   }
   nextStep();
 }
@@ -860,18 +868,33 @@ function shake(id){
 /* ============ PUBLICAR PERFIL: crea cuenta Auth + usuarios + profesores ============ */
 window.publishProfile = async function(){
   try{
-    const cred = await createUserWithEmailAndPassword(auth, draft.email, draft.pass);
-    const uid = cred.user.uid;
+    let uid, email;
 
-    await setDoc(doc(db, "usuarios", uid), {
-      name: draft.name,
-      email: draft.email,
-      role: "profesor",
-      creditos: CREDITOS_INICIALES,
-      zone: draft.zone,
-      phone: draft.phone,
-      createdAt: serverTimestamp()
-    });
+    if(auth.currentUser){
+      // Ya hay una cuenta activa (ej. te registraste como alumno o ya tienes cuenta
+      // de profesor): completamos el perfil sin crear una cuenta nueva.
+      uid = auth.currentUser.uid;
+      email = auth.currentUser.email;
+      try{
+        await updateDoc(doc(db, "usuarios", uid), { role: "profesor" });
+      }catch(e){
+        // Si ya eras profesor, esto no cambia nada y no falla. Si eras alumno,
+        // la regla de seguridad bloquea el cambio de rol por ahora.
+      }
+    } else {
+      const cred = await createUserWithEmailAndPassword(auth, draft.email, draft.pass);
+      uid = cred.user.uid;
+      email = draft.email;
+      await setDoc(doc(db, "usuarios", uid), {
+        name: draft.name,
+        email: draft.email,
+        role: "profesor",
+        creditos: CREDITOS_INICIALES,
+        zone: draft.zone,
+        phone: draft.phone,
+        createdAt: serverTimestamp()
+      });
+    }
 
     await setDoc(doc(db, "profesores", uid), {
       name: draft.name,
@@ -883,10 +906,11 @@ window.publishProfile = async function(){
       videoUrl: draft.videoUrl,
       phone: draft.phone,
       photo: draft.photo,
+      clasesCompletadas: 0,
       createdAt: serverTimestamp()
     });
 
-    currentUser = { uid, email: draft.email, name: draft.name, role: "profesor", creditos: CREDITOS_INICIALES, zone: draft.zone, phone: draft.phone };
+    currentUser = { ...currentUser, uid, email, name: draft.name, role: "profesor", zone: draft.zone, phone: draft.phone };
     currentEditingTeacher = { id: uid, ...draft, rate: Number(draft.rate) };
     renderAuthWidget();
     renderNavLock();
