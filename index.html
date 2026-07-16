@@ -436,12 +436,20 @@ onAuthStateChanged(auth, async (user) => {
     } else {
       currentUser = { uid: user.uid, email: user.email, name: user.email, role: "alumno", creditos: 0 };
     }
+    if(currentUser.role === 'profesor'){
+      try{
+        const profSnap = await getDoc(doc(db, "profesores", user.uid));
+        if(profSnap.exists()) currentEditingTeacher = { id: user.uid, ...profSnap.data() };
+      }catch(e){ console.error(e); }
+    }
   } else {
     currentUser = null;
+    currentEditingTeacher = null;
   }
   renderAuthWidget();
   renderNavLock();
   renderTeacherList();
+  renderMyProfilePreview();
   loadMyReservas();
 });
 
@@ -662,11 +670,18 @@ const STEPS = ['nombre','foto','instrumentos','zona','tarifa','modalidad','bio',
 let stepIndex = 0;
 let draft = {name:"",photo:"",instruments:[],zone:"",rate:"",modalidad:"",bio:"",videoUrl:"",phone:"",email:"",pass:""};
 
-window.startWizard = function(){
-  draft = {name:"",photo:"",instruments:[],zone:"",rate:"",modalidad:"",bio:"",videoUrl:"",phone:"",email:"",pass:""};
+window.startWizard = function(existing){
+  draft = existing
+    ? {name:existing.name||"", photo:existing.photo||"", instruments:[...(existing.instruments||[])], zone:existing.zone||"", rate:existing.rate||"", modalidad:existing.modalidad||"", bio:existing.bio||"", videoUrl:existing.videoUrl||"", phone:existing.phone||"", email:"", pass:""}
+    : {name:"",photo:"",instruments:[],zone:"",rate:"",modalidad:"",bio:"",videoUrl:"",phone:"",email:"",pass:""};
   stepIndex = 0;
   switchView('wizard');
   renderStep();
+}
+
+window.editMyProfile = function(){
+  if(!currentEditingTeacher){ toast('Todavía no hay un perfil para editar', true); return; }
+  startWizard(currentEditingTeacher);
 }
 
 function renderProgress(){
@@ -894,7 +909,8 @@ window.publishProfile = async function(){
       });
     }
 
-    await setDoc(doc(db, "profesores", uid), {
+    const esEdicion = !!(currentEditingTeacher && currentEditingTeacher.id === uid);
+    const datosProfesor = {
       name: draft.name,
       instruments: draft.instruments,
       zone: draft.zone,
@@ -903,10 +919,13 @@ window.publishProfile = async function(){
       bio: draft.bio,
       videoUrl: draft.videoUrl,
       phone: draft.phone,
-      photo: draft.photo,
-      clasesCompletadas: 0,
-      createdAt: serverTimestamp()
-    });
+      photo: draft.photo
+    };
+    if(!esEdicion){
+      datosProfesor.clasesCompletadas = 0;
+      datosProfesor.createdAt = serverTimestamp();
+    }
+    await setDoc(doc(db, "profesores", uid), datosProfesor, { merge: true });
 
     currentUser = { ...currentUser, uid, email, name: draft.name, role: "profesor", zone: draft.zone, phone: draft.phone };
     currentEditingTeacher = { id: uid, ...draft, rate: Number(draft.rate) };
@@ -914,7 +933,7 @@ window.publishProfile = async function(){
     renderNavLock();
     switchView('ensenar');
     renderMyProfilePreview();
-    toast('¡Tu perfil ya está publicado! 🎵');
+    toast(esEdicion ? '¡Perfil actualizado! 🎵' : '¡Tu perfil ya está publicado! 🎵');
   }catch(e){
     console.error(e);
     let msg = 'No se pudo publicar tu perfil.';
@@ -936,7 +955,8 @@ function renderMyProfilePreview(){
         <div class="tcard-meta">${(t.instruments||[]).join(' · ')}</div>
         <div class="tcard-tags"><span class="tag-pill zone">${t.zone}</span><span class="tag-pill">${MODALIDADES.find(m=>m.id===t.modalidad)?.label}</span></div>
       </div>
-    </div>`;
+    </div>
+    <button class="btn btn-ghost btn-block" style="margin-top:12px;" onclick="editMyProfile()">Editar mi perfil</button>`;
 }
 
 /* ============ TOAST ============ */
