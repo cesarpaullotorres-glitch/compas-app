@@ -263,7 +263,7 @@
       <p>¿Cruce de horario o un evento? Publica y que un colega del gremio te cubra.</p>
     </div>
     <div class="cta-row">
-      <button class="btn btn-teal btn-block" onclick="openSuplenciaForm()">Publicar suplencia · 10 créditos</button>
+      <button class="btn btn-teal btn-block" onclick="openSuplenciaForm()">Publicar suplencia</button>
     </div>
     <div class="card-list" id="suplenciaList" style="margin-top:18px;"></div>
   </div>
@@ -324,8 +324,6 @@
     <div class="modal">
       <h3 id="acc_name">—</h3>
       <div class="hint" id="acc_role">—</div>
-      <div class="credits-badge" style="width:fit-content;margin-bottom:18px;">✦ <span id="acc_credits">0</span> créditos</div>
-      <button class="btn btn-teal btn-block" onclick="rechargeCredits()">Recargar 50 créditos (demo)</button>
       <button id="acc_admin_btn" class="btn btn-ghost btn-block" style="margin-top:10px;display:none;" onclick="goAdmin()">Panel de administrador</button>
       <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="doLogout()">Cerrar sesión</button>
       <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="closeAccountModal()">Cerrar</button>
@@ -336,7 +334,7 @@
   <div class="modal-overlay" id="suplenciaModal">
     <div class="modal">
       <h3>Publicar suplencia</h3>
-      <div class="hint">Cuesta 10 créditos. Visible para todo el gremio.</div>
+      <div class="hint">Visible para todo el gremio.</div>
       <div class="field"><label>Instrumento</label><select id="sup_instrument"></select></div>
       <div class="field"><label>Distrito</label><select id="sup_zone"></select></div>
       <div class="field"><label>Pago ofrecido (S/)</label><input type="number" id="sup_monto" placeholder="Ej. 40"></div>
@@ -409,7 +407,7 @@ const NTFY_TOPIC = "compas-aacfe-reservas-x7f2q";
 
 /* ============ DATOS BASE (catálogos, no van a Firestore) ============ */
 const ZONES = ["Callao","Cercado de Lima","San Miguel","Pueblo Libre","Jesús María","Magdalena","Breña","La Victoria","Surquillo","Miraflores","San Isidro","Barranco","Surco","San Borja","La Molina","Los Olivos","San Martín de Porres","Comas","Independencia","Ate","San Juan de Lurigancho","Villa El Salvador"];
-const INSTRUMENTS = ["Piano","Guitarra","Canto","Violín","Batería","Bajo","Cajón","Saxofón","Trompeta","Flauta","Charango","Cuatro","Solfeo / Teoría"];
+const INSTRUMENTS = ["Piano","Guitarra","Canto","Violín","Viola","Violonchelo","Contrabajo","Batería","Bajo","Cajón","Saxofón","Trompeta","Trombón","Eufonio","Tuba","Corno","Flauta","Clarinete","Charango","Cuatro","Solfeo / Teoría"];
 const MODALIDADES = [{id:"presencial",label:"Presencial"},{id:"virtual",label:"Virtual"},{id:"ambas",label:"Ambas"}];
 
 let TEACHERS = [];
@@ -450,7 +448,7 @@ onAuthStateChanged(auth, async (user) => {
 function renderAuthWidget(){
   const w = document.getElementById('authWidget');
   if(currentUser){
-    w.innerHTML = `<div class="credits-badge" onclick="openAccountOrAuth()">✦ ${currentUser.creditos ?? 0}</div>`;
+    w.innerHTML = `<div class="credits-badge" onclick="openAccountOrAuth()">${initials(currentUser.name||currentUser.email)}</div>`;
   } else {
     w.innerHTML = `<button class="login-link" onclick="openAuthModal('login')">Iniciar sesión</button>`;
   }
@@ -1010,7 +1008,6 @@ window.openAccountOrAuth = function(){
 function openAccountModal(){
   document.getElementById('acc_name').textContent = currentUser.name || currentUser.email;
   document.getElementById('acc_role').textContent = currentUser.role === 'profesor' ? 'Profesor del gremio' : 'Alumno';
-  document.getElementById('acc_credits').textContent = currentUser.creditos ?? 0;
   const adminBtn = document.getElementById('acc_admin_btn');
   if(adminBtn) adminBtn.style.display = currentUser.esAdmin ? 'block' : 'none';
   document.getElementById('accountModal').classList.add('active');
@@ -1022,19 +1019,6 @@ window.doLogout = async function(){
   closeAccountModal();
   switchView('explorar');
   toast('Sesión cerrada');
-}
-
-/* Recarga de créditos — DEMO. En producción, esto debe ir detrás de una
-   pasarela de pago real (Culqi, Mercado Pago, etc.) antes de acreditar. */
-window.rechargeCredits = async function(){
-  if(!currentUser) return;
-  try{
-    await updateDoc(doc(db, "usuarios", currentUser.uid), { creditos: increment(50) });
-    currentUser.creditos += 50;
-    document.getElementById('acc_credits').textContent = currentUser.creditos;
-    renderAuthWidget();
-    toast('+50 créditos agregados (demo)');
-  }catch(e){ console.error(e); toast('No se pudo recargar créditos', true); }
 }
 
 /* ============ MÓDULO GREMIO: BOLSA DE SUPLENCIAS ============ */
@@ -1051,17 +1035,7 @@ window.submitSuplencia = async function(){
   const msg = document.getElementById('sup_msg').value.trim();
   if(!instrument || !zone || !monto){ toast('Completa instrumento, zona y monto', true); return; }
 
-  if((currentUser.creditos||0) < COSTO_PUBLICAR_SUPLENCIA){
-    toast(`Necesitas ${COSTO_PUBLICAR_SUPLENCIA} créditos para publicar`, true);
-    return;
-  }
-  const ok = confirm(`Publicar esta suplencia cuesta ${COSTO_PUBLICAR_SUPLENCIA} créditos. ¿Continuar?`);
-  if(!ok) return;
-
   try{
-    await updateDoc(doc(db, "usuarios", currentUser.uid), { creditos: increment(-COSTO_PUBLICAR_SUPLENCIA) });
-    currentUser.creditos -= COSTO_PUBLICAR_SUPLENCIA;
-
     await addDoc(collection(db, "suplencias"), {
       teacherId: currentUser.uid,
       teacherName: currentUser.name,
