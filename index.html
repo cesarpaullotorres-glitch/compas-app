@@ -117,6 +117,8 @@
   .contact-btn{width:100%;justify-content:center;font-size:12.5px;padding:9px 12px;}
   .contact-revealed{display:flex;align-items:center;gap:8px;background:rgba(47,110,104,0.18);border-radius:999px;padding:9px 12px;font-size:12.5px;color:var(--teal-bright);text-decoration:none;justify-content:center;font-weight:600;}
   .verified-badge{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--teal);color:var(--text-warm);font-size:10px;vertical-align:middle;}
+  .star{color:rgba(244,239,228,0.2);cursor:pointer;transition:color .15s ease;}
+  .star.on{color:var(--brass-bright);}
 
   .empty-state{text-align:center;padding:50px 20px;color:var(--text-dim);}
   .empty-state .icon{font-size:34px;margin-bottom:10px;opacity:0.6;}
@@ -268,6 +270,15 @@
     <div class="card-list" id="suplenciaList" style="margin-top:18px;"></div>
   </div>
 
+  <!-- ===== VIEW: MIS RESERVAS (alumno) / SOLICITUDES (profesor) ===== -->
+  <div class="view" id="view-misreservas">
+    <div class="hero">
+      <h2>Mis reservas</h2>
+      <p>Aquí ves el estado de tus solicitudes y clases.</p>
+    </div>
+    <div class="card-list" id="misReservasList"></div>
+  </div>
+
   <!-- ===== VIEW: PANEL DE ADMINISTRADOR (oculto, solo visible para esAdmin) ===== -->
   <div class="view" id="view-admin">
     <div class="hero">
@@ -324,6 +335,7 @@
     <div class="modal">
       <h3 id="acc_name">—</h3>
       <div class="hint" id="acc_role">—</div>
+      <button class="btn btn-teal btn-block" onclick="closeAccountModal(); switchView('misreservas'); loadMyReservas();">Mis reservas</button>
       <button id="acc_admin_btn" class="btn btn-ghost btn-block" style="margin-top:10px;display:none;" onclick="goAdmin()">Panel de administrador</button>
       <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="doLogout()">Cerrar sesión</button>
       <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="closeAccountModal()">Cerrar</button>
@@ -346,14 +358,28 @@
     </div>
   </div>
 
-  <!-- ===== MODAL: RESERVAR CLASE (pago manual) ===== -->
+  <!-- ===== MODAL: SOLICITAR HORARIO / PAGAR (comparten estructura) ===== -->
   <div class="modal-overlay" id="reservaModal">
     <div class="modal">
-      <h3>Reservar clase</h3>
+      <h3 id="reservaModalTitle">Solicitar horario</h3>
       <div id="reserva_body"></div>
       <div class="cta-row" style="margin-top:18px;">
         <button class="btn btn-ghost btn-block" onclick="closeReservaModal()">Cancelar</button>
-        <button class="btn btn-primary btn-block" onclick="submitReserva()">Ya pagué</button>
+        <button class="btn btn-primary btn-block" id="reservaModalBtn" onclick="submitReserva()">Enviar solicitud</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: CALIFICAR CLASE ===== -->
+  <div class="modal-overlay" id="calificarModal">
+    <div class="modal">
+      <h3>¿Cómo estuvo tu clase con <span id="calificar_nombre"></span>?</h3>
+      <div class="hint">Tu calificación ayuda a mantener la confianza del gremio.</div>
+      <div id="estrellas_wrap" style="font-size:32px;margin:16px 0;text-align:center;letter-spacing:6px;"></div>
+      <div class="field"><label>Comentario (opcional)</label><textarea id="calif_comentario" maxlength="200" placeholder="Ej. Muy puntual y explica claro"></textarea></div>
+      <div class="cta-row">
+        <button class="btn btn-ghost btn-block" onclick="closeCalificarModal()">Ahora no</button>
+        <button class="btn btn-primary btn-block" onclick="submitCalificacion()">Enviar</button>
       </div>
     </div>
   </div>
@@ -528,9 +554,11 @@ function renderTeacherList(){
   list.innerHTML = filtered.map(t=>{
     const revealed = revealedContacts.has(t.id);
     const verificado = (t.clasesCompletadas||0) >= 3;
+    const rating = VALORACIONES_POR_PROFESOR[t.id];
+    const ratingHtml = rating ? `<span class="tag-pill" style="background:rgba(201,151,63,0.14);color:var(--brass-bright);">★ ${rating.promedio.toFixed(1)} (${rating.cantidad})</span>` : '';
     const contactHtml = revealed
       ? `<a class="contact-revealed" href="https://wa.me/${(t.phone||'').replace(/\D/g,'')}" target="_blank" onclick="event.stopPropagation()">💬 ${t.phone}</a>`
-      : `<button class="btn btn-teal contact-btn" onclick="event.stopPropagation(); openReservaModal('${t.id}')">Reservar clase</button>`;
+      : `<button class="btn btn-teal contact-btn" onclick="event.stopPropagation(); openSolicitudModal('${t.id}')">Solicitar horario</button>`;
     return `
     <div class="teacher-card">
       <div class="avatar" style="${t.photo ? `background-image:url(${t.photo})`:''}">${t.photo?'':initials(t.name)}</div>
@@ -543,6 +571,7 @@ function renderTeacherList(){
         <div class="tcard-tags">
           <span class="tag-pill zone">${t.zone}</span>
           <span class="tag-pill">${MODALIDADES.find(m=>m.id===t.modalidad)?.label || t.modalidad}</span>
+          ${ratingHtml}
         </div>
         <div class="contact-row">${contactHtml}</div>
       </div>
@@ -550,29 +579,112 @@ function renderTeacherList(){
   }).join('');
 }
 
-/* ============ RESERVAS: pago manual "con cara de pasarela" ============ */
-let reservaTeacher = null;
+/* ============ VALORACIONES (calificación del alumno al profesor) ============ */
+let VALORACIONES_POR_PROFESOR = {};
+const valoracionesQ = collection(db, "valoraciones");
+onSnapshot(valoracionesQ, (snap) => {
+  const acumulado = {};
+  snap.forEach(d=>{
+    const v = d.data();
+    if(!acumulado[v.profesorId]) acumulado[v.profesorId] = {suma:0, cantidad:0};
+    acumulado[v.profesorId].suma += v.calificacion;
+    acumulado[v.profesorId].cantidad += 1;
+  });
+  VALORACIONES_POR_PROFESOR = {};
+  Object.entries(acumulado).forEach(([pid, d])=>{
+    VALORACIONES_POR_PROFESOR[pid] = { promedio: d.suma/d.cantidad, cantidad: d.cantidad };
+  });
+  renderTeacherList();
+}, (err)=>console.error(err));
+
+/* ============ RESERVAS: solicitud → confirmación → pago → calificación ============ */
+let solicitudTeacher = null;
+let pagoReservaId = null;
 let comprobanteData = null;
+let calificacionReserva = null;
+let estrellasSeleccionadas = 0;
 
-window.openReservaModal = function(teacherId){
-  if(!currentUser){ toast('Inicia sesión para reservar una clase', true); openAuthModal('login'); return; }
-  if(currentUser.role !== 'alumno'){ toast('Solo los alumnos pueden reservar clases', true); return; }
-  reservaTeacher = TEACHERS.find(t=>t.id===teacherId);
-  if(!reservaTeacher) return;
-  comprobanteData = null;
+window.openSolicitudModal = function(teacherId){
+  if(!currentUser){ toast('Inicia sesión para solicitar una clase', true); openAuthModal('login'); return; }
+  if(currentUser.role !== 'alumno'){ toast('Solo los alumnos pueden solicitar clases', true); return; }
+  solicitudTeacher = TEACHERS.find(t=>t.id===teacherId);
+  if(!solicitudTeacher) return;
+  pagoReservaId = null;
+  document.getElementById('reservaModalTitle').textContent = 'Solicitar horario';
+  document.getElementById('reservaModalBtn').textContent = 'Enviar solicitud';
 
-  const comision = Math.round(reservaTeacher.rate * COMISION_PORCENTAJE * 100)/100;
   document.getElementById('reserva_body').innerHTML = `
     <div class="preview-wrap" style="margin-bottom:18px;">
-      <div class="preview-badge mono">Vas a reservar con</div>
-      <div class="tcard-name" style="font-size:17px;">${reservaTeacher.name}</div>
-      <div class="tcard-meta" style="margin-top:4px;">${(reservaTeacher.instruments||[]).join(' · ')}</div>
-      <div style="margin-top:14px;font-family:'IBM Plex Mono';font-size:13px;color:var(--text-dim);">
-        Precio de la clase: <span style="color:var(--brass-bright);">S/ ${reservaTeacher.rate}</span>
-      </div>
+      <div class="preview-badge mono">Vas a solicitar horario con</div>
+      <div class="tcard-name" style="font-size:17px;">${solicitudTeacher.name}</div>
+      <div class="tcard-meta" style="margin-top:4px;">${(solicitudTeacher.instruments||[]).join(' · ')} · S/ ${solicitudTeacher.rate}/h</div>
     </div>
+    <div class="field"><label>¿Qué día y hora te conviene?</label><input type="text" id="sol_horario" placeholder="Ej. Sábados 4pm"></div>
+    <div class="field"><label>Mensaje (opcional)</label><textarea id="sol_mensaje" maxlength="140" placeholder="Ej. Soy principiante, busco clases de guitarra"></textarea></div>
+  `;
+  document.getElementById('reservaModal').classList.add('active');
+}
+window.closeReservaModal = function(){ document.getElementById('reservaModal').classList.remove('active'); }
+
+window.submitSolicitud = async function(){
+  const horario = document.getElementById('sol_horario')?.value.trim();
+  if(!horario){ toast('Cuéntanos qué horario te conviene', true); return; }
+  const mensaje = document.getElementById('sol_mensaje')?.value.trim() || '';
+
+  try{
+    const comision = Math.round(solicitudTeacher.rate * COMISION_PORCENTAJE * 100)/100;
+    await addDoc(collection(db, "reservas"), {
+      alumnoId: currentUser.uid,
+      alumnoNombre: currentUser.name,
+      alumnoPhone: currentUser.phone || '',
+      profesorId: solicitudTeacher.id,
+      profesorNombre: solicitudTeacher.name,
+      profesorPhone: solicitudTeacher.phone || '',
+      precio: solicitudTeacher.rate,
+      comisionApp: comision,
+      gananciaProfesor: solicitudTeacher.rate - comision,
+      horario, mensaje,
+      estado: 'solicitud',
+      pagadoAProfesor: false,
+      calificada: false,
+      createdAt: serverTimestamp()
+    });
+    notificarCesar('🎵 Nueva solicitud de horario', `${currentUser.name} pidió horario con ${solicitudTeacher.name}: "${horario}"`);
+    closeReservaModal();
+    toast('Solicitud enviada. Revisa "Mis reservas" cuando el profesor confirme.');
+  }catch(e){
+    console.error(e);
+    toast('No se pudo enviar la solicitud, intenta de nuevo', true);
+  }
+}
+
+/* Profesor confirma o rechaza disponibilidad */
+window.confirmarDisponibilidad = async function(reservaId){
+  try{
+    await updateDoc(doc(db,"reservas",reservaId), { estado: 'disponible' });
+    toast('Disponibilidad confirmada. El alumno ya puede pagar.');
+    loadMyReservas();
+  }catch(e){ console.error(e); toast('No se pudo confirmar', true); }
+}
+window.rechazarSolicitud = async function(reservaId){
+  const ok = confirm('¿Confirmas que ese horario no te funciona?');
+  if(!ok) return;
+  try{
+    await updateDoc(doc(db,"reservas",reservaId), { estado: 'rechazada' });
+    toast('Solicitud rechazada');
+    loadMyReservas();
+  }catch(e){ console.error(e); toast('No se pudo rechazar', true); }
+}
+
+/* Alumno paga una vez el profesor confirmó disponibilidad */
+window.openPagoModal = function(reservaId, precio){
+  pagoReservaId = reservaId;
+  comprobanteData = null;
+  document.getElementById('reservaModalTitle').textContent = 'Pagar clase';
+  document.getElementById('reservaModalBtn').textContent = 'Ya pagué';
+  document.getElementById('reserva_body').innerHTML = `
     <div class="step-eyebrow mono" style="margin-bottom:10px;">Paso 1 · Transfiere</div>
-    <div class="hint" style="margin-bottom:14px;">Yapea o transfiere el monto completo a:</div>
+    <div class="hint" style="margin-bottom:14px;">Yapea o transfiere S/ ${precio} a:</div>
     <div class="admin-row"><span class="name">Yape / Plin</span><span class="meta mono">${PAGO_YAPE}</span></div>
     <div class="admin-row"><span class="name">A nombre de</span><span class="meta">${PAGO_NOMBRE}</span></div>
     <div class="step-eyebrow mono" style="margin:18px 0 10px;">Paso 2 · Sube tu comprobante</div>
@@ -593,60 +705,133 @@ window.openReservaModal = function(teacherId){
   document.getElementById('reservaModal').classList.add('active');
 }
 
-window.closeReservaModal = function(){ document.getElementById('reservaModal').classList.remove('active'); }
-
 window.submitReserva = async function(){
-  if(!reservaTeacher || !currentUser) return;
-  if(!comprobanteData){ toast('Sube tu comprobante de pago antes de continuar', true); return; }
-
-  try{
-    const comision = Math.round(reservaTeacher.rate * COMISION_PORCENTAJE * 100)/100;
-    const gananciaProfesor = reservaTeacher.rate - comision;
-
-    await addDoc(collection(db, "reservas"), {
-      alumnoId: currentUser.uid,
-      alumnoNombre: currentUser.name,
-      alumnoPhone: currentUser.phone || '',
-      profesorId: reservaTeacher.id,
-      profesorNombre: reservaTeacher.name,
-      profesorPhone: reservaTeacher.phone || '',
-      precio: reservaTeacher.rate,
-      comisionApp: comision,
-      gananciaProfesor,
-      comprobante: comprobanteData,
-      estado: 'pendiente_pago',
-      pagadoAProfesor: false,
-      createdAt: serverTimestamp()
-    });
-
-    notificarCesar(
-      '🎵 Nueva reserva en Compás',
-      `${currentUser.name} quiere reservar con ${reservaTeacher.name} · S/ ${reservaTeacher.rate}. Revisa el panel para confirmar el pago.`
-    );
-
-    closeReservaModal();
-    toast('¡Listo! En cuanto confirmemos tu pago verás el contacto aquí mismo.');
-  }catch(e){
-    console.error(e);
-    toast('No se pudo enviar la reserva, intenta de nuevo', true);
+  if(pagoReservaId){
+    if(!comprobanteData){ toast('Sube tu comprobante de pago antes de continuar', true); return; }
+    try{
+      await updateDoc(doc(db,"reservas",pagoReservaId), { comprobante: comprobanteData, estado: 'pendiente_pago' });
+      notificarCesar('💳 Comprobante subido', 'Un alumno subió su comprobante. Revisa el panel para confirmar el pago.');
+      closeReservaModal();
+      pagoReservaId = null;
+      toast('¡Listo! En cuanto confirmemos tu pago verás el contacto aquí mismo.');
+      loadMyReservas();
+    }catch(e){
+      console.error(e);
+      toast('No se pudo enviar el comprobante, intenta de nuevo', true);
+    }
+  } else {
+    submitSolicitud();
   }
 }
 
-/* Carga las reservas ya pagadas del alumno para revelar el contacto correspondiente */
-async function loadMyReservas(){
-  if(!currentUser || currentUser.role !== 'alumno') return;
+/* Cualquiera de las dos partes puede marcar que la clase ya se dictó */
+window.marcarCompletada = async function(reservaId){
+  const ok = confirm('¿Confirmas que la clase ya se dictó?');
+  if(!ok) return;
   try{
-    const q = query(collection(db,"reservas"), where("alumnoId","==",currentUser.uid));
-    const snap = await getDocs(q);
-    revealedContacts = new Set();
-    snap.forEach(d=>{
-      const r = d.data();
-      if(r.estado === 'pago_confirmado' || r.estado === 'completada'){
-        revealedContacts.add(r.profesorId);
-      }
+    await updateDoc(doc(db,"reservas",reservaId), { estado: 'completada' });
+    toast('¡Clase marcada como completada!');
+    loadMyReservas();
+  }catch(e){ console.error(e); toast('No se pudo marcar', true); }
+}
+
+/* ============ CALIFICACIÓN (solo alumno → profesor) ============ */
+window.openCalificarModal = function(reservaId, profesorId, profesorNombre){
+  calificacionReserva = { reservaId, profesorId };
+  estrellasSeleccionadas = 0;
+  document.getElementById('calificar_nombre').textContent = profesorNombre;
+  renderEstrellas();
+  document.getElementById('calif_comentario').value = '';
+  document.getElementById('calificarModal').classList.add('active');
+}
+window.closeCalificarModal = function(){ document.getElementById('calificarModal').classList.remove('active'); }
+
+function renderEstrellas(){
+  const wrap = document.getElementById('estrellas_wrap');
+  wrap.innerHTML = [1,2,3,4,5].map(n=>
+    `<span class="star ${n<=estrellasSeleccionadas?'on':''}" onclick="setEstrellas(${n})">★</span>`
+  ).join('');
+}
+window.setEstrellas = function(n){ estrellasSeleccionadas = n; renderEstrellas(); }
+
+window.submitCalificacion = async function(){
+  if(estrellasSeleccionadas===0){ toast('Elige de 1 a 5 estrellas', true); return; }
+  try{
+    await addDoc(collection(db,"valoraciones"), {
+      reservaId: calificacionReserva.reservaId,
+      profesorId: calificacionReserva.profesorId,
+      alumnoId: currentUser.uid,
+      calificacion: estrellasSeleccionadas,
+      comentario: document.getElementById('calif_comentario').value.trim(),
+      createdAt: serverTimestamp()
     });
-    renderTeacherList();
+    await updateDoc(doc(db,"reservas",calificacionReserva.reservaId), { calificada: true });
+    closeCalificarModal();
+    toast('¡Gracias por tu calificación! 🎵');
+    loadMyReservas();
+  }catch(e){ console.error(e); toast('No se pudo enviar tu calificación', true); }
+}
+
+/* ============ MIS RESERVAS (alumno) + SOLICITUDES (profesor) ============ */
+async function loadMyReservas(){
+  if(!currentUser) return;
+  try{
+    if(currentUser.role === 'alumno'){
+      const q = query(collection(db,"reservas"), where("alumnoId","==",currentUser.uid));
+      const snap = await getDocs(q);
+      revealedContacts = new Set();
+      const misReservas = [];
+      snap.forEach(d=>{
+        const r = { id:d.id, ...d.data() };
+        misReservas.push(r);
+        if(r.estado === 'pago_confirmado' || r.estado === 'completada') revealedContacts.add(r.profesorId);
+      });
+      renderMisReservas(misReservas, 'alumno');
+      renderTeacherList();
+    } else if(currentUser.role === 'profesor'){
+      const q = query(collection(db,"reservas"), where("profesorId","==",currentUser.uid));
+      const snap = await getDocs(q);
+      const misSolicitudes = [];
+      snap.forEach(d=> misSolicitudes.push({ id:d.id, ...d.data() }));
+      renderMisReservas(misSolicitudes, 'profesor');
+    }
   }catch(e){ console.error(e); }
+}
+
+function renderMisReservas(lista, rol){
+  const wrap = document.getElementById('misReservasList');
+  if(!wrap) return;
+  lista.sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+  if(lista.length===0){
+    wrap.innerHTML = `<div class="empty-state"><p>Todavía no tienes reservas.</p></div>`;
+    return;
+  }
+  wrap.innerHTML = lista.map(r=>{
+    const otro = rol==='alumno' ? r.profesorNombre : r.alumnoNombre;
+    let estadoTxt = '', accion = '';
+    if(r.estado==='solicitud'){
+      estadoTxt = rol==='alumno' ? 'Esperando que confirme disponibilidad' : `Pidió: "${r.horario}"`;
+      if(rol==='profesor') accion = `<div class="cta-row"><button class="btn btn-teal btn-sm" onclick="confirmarDisponibilidad('${r.id}')">Confirmar</button><button class="btn btn-ghost btn-sm" onclick="rechazarSolicitud('${r.id}')">No puedo</button></div>`;
+    } else if(r.estado==='disponible'){
+      estadoTxt = rol==='alumno' ? 'Horario confirmado, falta tu pago' : 'Confirmaste, esperando pago';
+      if(rol==='alumno') accion = `<button class="btn btn-teal btn-sm" style="margin-top:8px;" onclick="openPagoModal('${r.id}', ${r.precio})">Pagar ahora</button>`;
+    } else if(r.estado==='pendiente_pago'){
+      estadoTxt = 'Verificando tu pago';
+    } else if(r.estado==='pago_confirmado'){
+      estadoTxt = `Clase confirmada · 💬 ${rol==='alumno' ? r.profesorPhone : r.alumnoPhone}`;
+      accion = `<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="marcarCompletada('${r.id}')">Marcar clase completada</button>`;
+    } else if(r.estado==='completada'){
+      estadoTxt = 'Clase completada';
+      if(rol==='alumno' && !r.calificada) accion = `<button class="btn btn-teal btn-sm" style="margin-top:8px;" onclick="openCalificarModal('${r.id}','${r.profesorId}','${r.profesorNombre}')">Calificar clase</button>`;
+    } else if(r.estado==='rechazada'){
+      estadoTxt = 'Ese horario no funcionó. Intenta con otro.';
+    }
+    return `<div class="sup-card">
+      <div class="sup-top"><span class="sup-title">${otro}</span><span class="sup-monto">S/ ${r.precio}</span></div>
+      <div class="sup-meta">${estadoTxt}</div>
+      ${accion}
+    </div>`;
+  }).join('');
 }
 
 /* ============ NAV ============ */
