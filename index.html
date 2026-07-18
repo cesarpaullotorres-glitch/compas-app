@@ -491,6 +491,17 @@ function renderAuthWidget(){
 function renderNavLock(){
   const lock = document.getElementById('supLock');
   lock.style.display = (currentUser && currentUser.role === 'profesor') ? 'none' : 'inline';
+
+  // "Enseñar" es exclusiva de profesores. Los alumnos no la ven.
+  const ensenarBtn = document.querySelector('.navbtn[data-nav="ensenar"]');
+  if(ensenarBtn){
+    const esAlumno = currentUser && currentUser.role === 'alumno';
+    ensenarBtn.style.display = esAlumno ? 'none' : 'flex';
+    // Si un alumno estaba parado en esa vista cuando pierde acceso, lo regresamos a Explorar.
+    if(esAlumno && document.getElementById('view-ensenar').classList.contains('active')){
+      switchView('explorar');
+    }
+  }
 }
 
 /* ============ FIRESTORE: PROFESORES (live) ============ */
@@ -1331,7 +1342,7 @@ window.loadAdminStats = async function(){
     reservasSnap.forEach(d=>{
       const r = { id:d.id, ...d.data() };
       if(r.estado === 'pendiente_pago') pendientes.push(r);
-      if(r.estado === 'pago_confirmado'){
+      if(r.estado === 'pago_confirmado' || r.estado === 'completada'){
         comisionAcumulada += (r.comisionApp||0);
         if(!r.pagadoAProfesor){
           if(!porPagar[r.profesorId]) porPagar[r.profesorId] = {nombre:r.profesorNombre, monto:0};
@@ -1362,9 +1373,9 @@ window.loadAdminStats = async function(){
       <div class="admin-section-title mono">Pagos pendientes a profesores</div>
       ${Object.keys(porPagar).length===0 ? '<div class="empty-state"><p>No debes pagos por ahora.</p></div>' :
         Object.entries(porPagar).map(([pid,info])=>`
-          <div class="admin-row">
-            <span class="name">${info.nombre}</span>
-            <span class="meta">S/ ${info.monto.toFixed(0)}</span>
+          <div class="sup-card">
+            <div class="sup-top"><span class="sup-title">${info.nombre}</span><span class="sup-monto">S/ ${info.monto.toFixed(0)}</span></div>
+            <button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="marcarPagadoAProfesor('${pid}')">Ya le transferí, marcar pagado</button>
           </div>
         `).join('')}
 
@@ -1400,6 +1411,27 @@ window.confirmarPago = async function(reservaId){
   }catch(e){
     console.error(e);
     toast('No se pudo confirmar el pago', true);
+  }
+}
+
+/* Marca como pagadas (a un profesor específico) todas sus reservas
+   confirmadas que todavía no se le habían pagado. */
+window.marcarPagadoAProfesor = async function(profesorId){
+  const ok = confirm('¿Confirmas que ya le transferiste su parte a este profesor?');
+  if(!ok) return;
+  try{
+    const q = query(collection(db,"reservas"), where("profesorId","==",profesorId));
+    const snap = await getDocs(q);
+    const pendientes = snap.docs.filter(d=>{
+      const r = d.data();
+      return (r.estado === 'pago_confirmado' || r.estado === 'completada') && !r.pagadoAProfesor;
+    });
+    await Promise.all(pendientes.map(d => updateDoc(doc(db,"reservas",d.id), { pagadoAProfesor: true })));
+    toast('Marcado como pagado ✓');
+    loadAdminStats();
+  }catch(e){
+    console.error(e);
+    toast('No se pudo marcar como pagado', true);
   }
 }
 
