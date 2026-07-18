@@ -78,6 +78,8 @@
   .login-link{font-size:12.5px;color:var(--text-dim);background:none;border:none;text-decoration:underline;}
 
   .view{display:none;padding:0 24px 100px;}
+  .view.view-flush{padding:0;display:none;flex-direction:column;height:calc(100vh - 76px);}
+  .view.view-flush.active{display:flex;}
   .view.active{display:block;}
 
   .hero{padding:8px 0 20px;}
@@ -119,6 +121,19 @@
   .verified-badge{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--teal);color:var(--text-warm);font-size:10px;vertical-align:middle;}
   .star{color:rgba(244,239,228,0.2);cursor:pointer;transition:color .15s ease;}
   .star.on{color:var(--brass-bright);}
+
+  /* Chat interno */
+  .chat-header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid rgba(244,239,228,0.08);}
+  .chat-back{background:none;border:none;color:var(--text-dim);font-size:20px;padding:4px;}
+  .chat-messages{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px;}
+  .msg{max-width:78%;padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.4;}
+  .msg.mine{align-self:flex-end;background:var(--brass);color:var(--ink);border-bottom-right-radius:4px;}
+  .msg.other{align-self:flex-start;background:var(--ink-2);color:var(--text-warm);border-bottom-left-radius:4px;}
+  .msg-time{font-size:10px;opacity:0.6;margin-top:3px;display:block;}
+  .chat-input-row{display:flex;gap:8px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid rgba(244,239,228,0.08);}
+  .chat-input-row input{flex:1;background:var(--ink-2);border:1.5px solid rgba(244,239,228,0.12);border-radius:999px;padding:11px 16px;color:var(--text-warm);font-size:14px;outline:none;}
+  .chat-input-row input:focus{border-color:var(--brass);}
+  .chat-send{background:var(--brass);color:var(--ink);border:none;border-radius:50%;width:42px;height:42px;flex-shrink:0;font-size:16px;}
 
   .empty-state{text-align:center;padding:50px 20px;color:var(--text-dim);}
   .empty-state .icon{font-size:34px;margin-bottom:10px;opacity:0.6;}
@@ -277,6 +292,19 @@
       <p>Aquí ves el estado de tus solicitudes y clases.</p>
     </div>
     <div class="card-list" id="misReservasList"></div>
+  </div>
+
+  <!-- ===== VIEW: CHAT INTERNO ===== -->
+  <div class="view view-flush" id="view-chat">
+    <div class="chat-header">
+      <button class="chat-back" onclick="closeChat()">←</button>
+      <div class="tcard-name" id="chat_otro_nombre" style="font-size:16px;">—</div>
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-row">
+      <input type="text" id="chatInput" placeholder="Escribe un mensaje..." maxlength="500" onkeydown="if(event.key==='Enter') sendChatMessage();">
+      <button class="chat-send" onclick="sendChatMessage()">➤</button>
+    </div>
   </div>
 
   <!-- ===== VIEW: PANEL DE ADMINISTRADOR (oculto, solo visible para esAdmin) ===== -->
@@ -451,8 +479,6 @@ function notificarCesar(titulo, mensaje){
   }).catch(()=>{}); // si falla, no interrumpe el flujo del usuario
 }
 
-let revealedContacts = new Set();
-
 /* ============ AUTH STATE ============ */
 onAuthStateChanged(auth, async (user) => {
   if(user){
@@ -563,13 +589,9 @@ function renderTeacherList(){
     return;
   }
   list.innerHTML = filtered.map(t=>{
-    const revealed = revealedContacts.has(t.id);
     const verificado = (t.clasesCompletadas||0) >= 3;
     const rating = VALORACIONES_POR_PROFESOR[t.id];
     const ratingHtml = rating ? `<span class="tag-pill" style="background:rgba(201,151,63,0.14);color:var(--brass-bright);">★ ${rating.promedio.toFixed(1)} (${rating.cantidad})</span>` : '';
-    const contactHtml = revealed
-      ? `<a class="contact-revealed" href="https://wa.me/${(t.phone||'').replace(/\D/g,'')}" target="_blank" onclick="event.stopPropagation()">💬 ${t.phone}</a>`
-      : `<button class="btn btn-teal contact-btn" onclick="event.stopPropagation(); openSolicitudModal('${t.id}')">Solicitar horario</button>`;
     return `
     <div class="teacher-card">
       <div class="avatar" style="${t.photo ? `background-image:url(${t.photo})`:''}">${t.photo?'':initials(t.name)}</div>
@@ -584,7 +606,7 @@ function renderTeacherList(){
           <span class="tag-pill">${MODALIDADES.find(m=>m.id===t.modalidad)?.label || t.modalidad}</span>
           ${ratingHtml}
         </div>
-        <div class="contact-row">${contactHtml}</div>
+        <div class="contact-row"><button class="btn btn-teal contact-btn" onclick="event.stopPropagation(); openSolicitudModal('${t.id}')">Solicitar horario</button></div>
       </div>
     </div>`;
   }).join('');
@@ -783,6 +805,67 @@ window.submitCalificacion = async function(){
   }catch(e){ console.error(e); toast('No se pudo enviar tu calificación', true); }
 }
 
+/* ============ CHAT INTERNO (reemplaza revelar WhatsApp) ============ */
+let chatReservaId = null;
+let chatAlumnoId = null;
+let chatProfesorId = null;
+let chatUnsub = null; // función para desconectar el listener al salir, y no gastar lecturas de más
+
+window.openChat = async function(reservaId, otroNombre){
+  chatReservaId = reservaId;
+  document.getElementById('chat_otro_nombre').textContent = otroNombre;
+  document.getElementById('chatMessages').innerHTML = `<div class="empty-state"><p>Cargando conversación…</p></div>`;
+  switchView('chat');
+
+  // Necesitamos saber quiénes son las dos partes, para poder guardarlas en
+  // cada mensaje (así las reglas de seguridad no necesitan leer el documento padre).
+  const reservaSnap = await getDoc(doc(db,"reservas",reservaId));
+  if(!reservaSnap.exists()){ toast('No se encontró esta conversación', true); return; }
+  const r = reservaSnap.data();
+  chatAlumnoId = r.alumnoId;
+  chatProfesorId = r.profesorId;
+
+  if(chatUnsub) chatUnsub(); // corta cualquier chat anterior que hubiera quedado abierto
+  const mensajesQ = query(collection(db,"reservas",reservaId,"mensajes"), orderBy("createdAt","asc"));
+  chatUnsub = onSnapshot(mensajesQ, (snap)=>{
+    const wrap = document.getElementById('chatMessages');
+    if(snap.empty){
+      wrap.innerHTML = `<div class="empty-state"><p>Todavía no hay mensajes.<br>Coordina aquí el horario y los detalles.</p></div>`;
+      return;
+    }
+    wrap.innerHTML = snap.docs.map(d=>{
+      const m = d.data();
+      const mia = m.de === currentUser.uid;
+      const hora = m.createdAt?.toDate ? m.createdAt.toDate().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}) : '';
+      return `<div class="msg ${mia?'mine':'other'}">${m.texto}<span class="msg-time">${hora}</span></div>`;
+    }).join('');
+    wrap.scrollTop = wrap.scrollHeight;
+  }, (err)=>console.error(err));
+}
+
+window.closeChat = function(){
+  if(chatUnsub){ chatUnsub(); chatUnsub = null; } // desconecta el listener, deja de gastar lecturas
+  switchView('misreservas');
+  loadMyReservas();
+}
+
+window.sendChatMessage = async function(){
+  const input = document.getElementById('chatInput');
+  const texto = input.value.trim();
+  if(!texto || !chatReservaId) return;
+  input.value = '';
+  try{
+    await addDoc(collection(db,"reservas",chatReservaId,"mensajes"), {
+      de: currentUser.uid,
+      deNombre: currentUser.name,
+      texto,
+      alumnoId: chatAlumnoId,
+      profesorId: chatProfesorId,
+      createdAt: serverTimestamp()
+    });
+  }catch(e){ console.error(e); toast('No se pudo enviar el mensaje', true); }
+}
+
 /* ============ MIS RESERVAS (alumno) + SOLICITUDES (profesor) ============ */
 async function loadMyReservas(){
   if(!currentUser) return;
@@ -790,15 +873,9 @@ async function loadMyReservas(){
     if(currentUser.role === 'alumno'){
       const q = query(collection(db,"reservas"), where("alumnoId","==",currentUser.uid));
       const snap = await getDocs(q);
-      revealedContacts = new Set();
       const misReservas = [];
-      snap.forEach(d=>{
-        const r = { id:d.id, ...d.data() };
-        misReservas.push(r);
-        if(r.estado === 'pago_confirmado' || r.estado === 'completada') revealedContacts.add(r.profesorId);
-      });
+      snap.forEach(d=> misReservas.push({ id:d.id, ...d.data() }));
       renderMisReservas(misReservas, 'alumno');
-      renderTeacherList();
     } else if(currentUser.role === 'profesor'){
       const q = query(collection(db,"reservas"), where("profesorId","==",currentUser.uid));
       const snap = await getDocs(q);
@@ -829,7 +906,7 @@ function renderMisReservas(lista, rol){
     } else if(r.estado==='pendiente_pago'){
       estadoTxt = 'Verificando tu pago';
     } else if(r.estado==='pago_confirmado'){
-      estadoTxt = `Clase confirmada · 💬 ${rol==='alumno' ? r.profesorPhone : r.alumnoPhone}`;
+      estadoTxt = `Clase confirmada`;
       accion = `<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="marcarCompletada('${r.id}')">Marcar clase completada</button>`;
     } else if(r.estado==='completada'){
       estadoTxt = 'Clase completada';
@@ -837,10 +914,13 @@ function renderMisReservas(lista, rol){
     } else if(r.estado==='rechazada'){
       estadoTxt = 'Ese horario no funcionó. Intenta con otro.';
     }
+    const chatBtn = r.estado!=='rechazada'
+      ? `<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="openChat('${r.id}','${otro.replace(/'/g,"")}')">💬 Chat</button>`
+      : '';
     return `<div class="sup-card">
       <div class="sup-top"><span class="sup-title">${otro}</span><span class="sup-monto">S/ ${r.precio}</span></div>
       <div class="sup-meta">${estadoTxt}</div>
-      ${accion}
+      <div class="cta-row" style="margin-top:2px;">${accion}${chatBtn}</div>
     </div>`;
   }).join('');
 }
