@@ -135,6 +135,20 @@
   .chat-input-row input:focus{border-color:var(--brass);}
   .chat-send{background:var(--brass);color:var(--ink);border:none;border-radius:50%;width:42px;height:42px;flex-shrink:0;font-size:16px;}
 
+  /* Horarios de disponibilidad */
+  .pausa-banner{background:rgba(193,84,63,0.15);border:1px solid rgba(193,84,63,0.3);border-radius:10px;padding:10px 14px;font-size:12.5px;color:var(--danger);margin-bottom:12px;}
+  .horario-block{display:flex;justify-content:space-between;align-items:center;background:var(--ink-2);border-radius:10px;padding:10px 14px;margin-bottom:8px;font-size:13px;}
+  .horario-block.ocupado{opacity:0.5;}
+  .horario-block-actions{display:flex;gap:8px;}
+  .horario-block-actions button{background:none;border:none;color:var(--text-dim);font-size:15px;padding:2px 4px;}
+  .slot-pill{display:inline-block;padding:9px 14px;border-radius:999px;background:var(--ink-2);border:1.5px solid rgba(244,239,228,0.12);font-size:12.5px;color:var(--text-warm);margin:0 6px 8px 0;cursor:pointer;}
+  .slot-pill.selected{border-color:var(--brass);background:rgba(201,151,63,0.12);color:var(--brass-bright);}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;background:var(--ink-2);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+  .toggle-switch{width:42px;height:24px;border-radius:999px;background:rgba(244,239,228,0.15);position:relative;cursor:pointer;transition:background .15s ease;flex-shrink:0;}
+  .toggle-switch.on{background:var(--danger);}
+  .toggle-switch .knob{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--text-warm);transition:left .15s ease;}
+  .toggle-switch.on .knob{left:21px;}
+
   .empty-state{text-align:center;padding:50px 20px;color:var(--text-dim);}
   .empty-state .icon{font-size:34px;margin-bottom:10px;opacity:0.6;}
   .empty-state p{font-size:13.5px;line-height:1.5;}
@@ -412,6 +426,40 @@
     </div>
   </div>
 
+  <!-- ===== MODAL: MIS HORARIOS (disponibilidad del profesor) ===== -->
+  <div class="modal-overlay" id="horariosModal">
+    <div class="modal">
+      <h3>Mis horarios</h3>
+      <div class="hint">Marca cuándo estás disponible. El alumno solo verá lo que marques aquí.</div>
+
+      <div class="toggle-row">
+        <div>
+          <div style="font-weight:600;font-size:13.5px;">Pausar disponibilidad</div>
+          <div style="font-size:11.5px;color:var(--text-dim);margin-top:2px;">Nadie podrá solicitarte horario mientras esté activo</div>
+        </div>
+        <div class="toggle-switch" id="pausaToggle" onclick="togglePausa()"><div class="knob"></div></div>
+      </div>
+      <div class="field" id="pausaMsgField" style="display:none;">
+        <label>Mensaje (opcional)</label>
+        <input type="text" id="pausaMensaje" placeholder="Ej. De viaje, vuelvo el 28 de julio">
+      </div>
+
+      <div class="admin-section-title mono">Bloques disponibles</div>
+      <div id="horariosList"></div>
+
+      <div class="admin-section-title mono">Agregar bloque</div>
+      <div class="field"><label>Día</label><select id="horario_dia"></select></div>
+      <div class="cta-row">
+        <div class="field" style="flex:1;"><label>Desde</label><input type="time" id="horario_inicio"></div>
+        <div class="field" style="flex:1;"><label>Hasta</label><input type="time" id="horario_fin"></div>
+      </div>
+      <button class="btn btn-teal btn-block" onclick="agregarBloqueHorario()">+ Agregar bloque</button>
+
+      <button class="btn btn-primary btn-block" style="margin-top:18px;" onclick="guardarHorarios()">Guardar cambios</button>
+      <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="closeHorariosModal()">Cerrar</button>
+    </div>
+  </div>
+
 </div>
 
 <script type="module">
@@ -592,6 +640,7 @@ function renderTeacherList(){
     const verificado = (t.clasesCompletadas||0) >= 3;
     const rating = VALORACIONES_POR_PROFESOR[t.id];
     const ratingHtml = rating ? `<span class="tag-pill" style="background:rgba(201,151,63,0.14);color:var(--brass-bright);">★ ${rating.promedio.toFixed(1)} (${rating.cantidad})</span>` : '';
+    const pausaHtml = t.pausado ? `<span class="tag-pill" style="background:rgba(193,84,63,0.18);color:var(--danger);">En pausa</span>` : '';
     return `
     <div class="teacher-card">
       <div class="avatar" style="${t.photo ? `background-image:url(${t.photo})`:''}">${t.photo?'':initials(t.name)}</div>
@@ -605,6 +654,7 @@ function renderTeacherList(){
           <span class="tag-pill zone">${t.zone}</span>
           <span class="tag-pill">${MODALIDADES.find(m=>m.id===t.modalidad)?.label || t.modalidad}</span>
           ${ratingHtml}
+          ${pausaHtml}
         </div>
         <div class="contact-row"><button class="btn btn-teal contact-btn" onclick="event.stopPropagation(); openSolicitudModal('${t.id}')">Solicitar horario</button></div>
       </div>
@@ -637,14 +687,33 @@ let comprobanteData = null;
 let calificacionReserva = null;
 let estrellasSeleccionadas = 0;
 
+let slotSeleccionado = null;
+
 window.openSolicitudModal = function(teacherId){
   if(!currentUser){ toast('Inicia sesión para solicitar una clase', true); openAuthModal('login'); return; }
   if(currentUser.role !== 'alumno'){ toast('Solo los alumnos pueden solicitar clases', true); return; }
   solicitudTeacher = TEACHERS.find(t=>t.id===teacherId);
   if(!solicitudTeacher) return;
   pagoReservaId = null;
+  slotSeleccionado = null;
   document.getElementById('reservaModalTitle').textContent = 'Solicitar horario';
   document.getElementById('reservaModalBtn').textContent = 'Enviar solicitud';
+
+  if(solicitudTeacher.pausado){
+    document.getElementById('reserva_body').innerHTML = `
+      <div class="pausa-banner">${solicitudTeacher.name} no está tomando solicitudes esta semana${solicitudTeacher.pausaMensaje ? ': '+solicitudTeacher.pausaMensaje : '.'}</div>`;
+    document.getElementById('reservaModalBtn').style.display = 'none';
+    document.getElementById('reservaModal').classList.add('active');
+    return;
+  }
+  document.getElementById('reservaModalBtn').style.display = 'block';
+
+  const disponibles = (solicitudTeacher.horarios || []).filter(b=>b.estado==='disponible');
+  const slotsHtml = disponibles.length
+    ? `<div class="field"><label>Elige un horario disponible</label>
+        <div>${disponibles.map(b=>`<span class="slot-pill" id="slot_${b.id}" onclick="seleccionarSlot('${b.id}','${b.dia} ${b.inicio}–${b.fin}')">${b.dia} ${b.inicio}–${b.fin}</span>`).join('')}</div>
+      </div>`
+    : `<div class="field"><label>¿Qué día y hora te conviene?</label><input type="text" id="sol_horario" placeholder="Ej. Sábados 4pm"></div>`;
 
   document.getElementById('reserva_body').innerHTML = `
     <div class="preview-wrap" style="margin-bottom:18px;">
@@ -652,16 +721,29 @@ window.openSolicitudModal = function(teacherId){
       <div class="tcard-name" style="font-size:17px;">${solicitudTeacher.name}</div>
       <div class="tcard-meta" style="margin-top:4px;">${(solicitudTeacher.instruments||[]).join(' · ')} · S/ ${solicitudTeacher.rate}/h</div>
     </div>
-    <div class="field"><label>¿Qué día y hora te conviene?</label><input type="text" id="sol_horario" placeholder="Ej. Sábados 4pm"></div>
+    ${slotsHtml}
     <div class="field"><label>Mensaje (opcional)</label><textarea id="sol_mensaje" maxlength="140" placeholder="Ej. Soy principiante, busco clases de guitarra"></textarea></div>
   `;
   document.getElementById('reservaModal').classList.add('active');
 }
 window.closeReservaModal = function(){ document.getElementById('reservaModal').classList.remove('active'); }
 
+window.seleccionarSlot = function(slotId, texto){
+  slotSeleccionado = { id: slotId, texto };
+  document.querySelectorAll('.slot-pill').forEach(el=>el.classList.remove('selected'));
+  document.getElementById(`slot_${slotId}`).classList.add('selected');
+}
+
 window.submitSolicitud = async function(){
-  const horario = document.getElementById('sol_horario')?.value.trim();
-  if(!horario){ toast('Cuéntanos qué horario te conviene', true); return; }
+  const disponibles = (solicitudTeacher.horarios || []).filter(b=>b.estado==='disponible');
+  let horario;
+  if(disponibles.length){
+    if(!slotSeleccionado){ toast('Elige uno de los horarios disponibles', true); return; }
+    horario = slotSeleccionado.texto;
+  } else {
+    horario = document.getElementById('sol_horario')?.value.trim();
+    if(!horario){ toast('Cuéntanos qué horario te conviene', true); return; }
+  }
   const mensaje = document.getElementById('sol_mensaje')?.value.trim() || '';
 
   try{
@@ -677,6 +759,7 @@ window.submitSolicitud = async function(){
       comisionApp: comision,
       gananciaProfesor: solicitudTeacher.rate - comision,
       horario, mensaje,
+      slotId: slotSeleccionado ? slotSeleccionado.id : null,
       estado: 'solicitud',
       pagadoAProfesor: false,
       calificada: false,
@@ -694,7 +777,19 @@ window.submitSolicitud = async function(){
 /* Profesor confirma o rechaza disponibilidad */
 window.confirmarDisponibilidad = async function(reservaId){
   try{
+    const reservaSnap = await getDoc(doc(db,"reservas",reservaId));
+    const r = reservaSnap.data();
     await updateDoc(doc(db,"reservas",reservaId), { estado: 'disponible' });
+
+    // Si la solicitud eligió un bloque específico, lo marcamos ocupado
+    // automáticamente para que no se lo pidan dos alumnos a la vez.
+    if(r && r.slotId){
+      const profSnap = await getDoc(doc(db,"profesores",r.profesorId));
+      const horarios = (profSnap.data().horarios || []).map(b =>
+        b.id === r.slotId ? { ...b, estado: 'ocupado' } : b
+      );
+      await updateDoc(doc(db,"profesores",r.profesorId), { horarios });
+    }
     toast('Disponibilidad confirmada. El alumno ya puede pagar.');
     loadMyReservas();
   }catch(e){ console.error(e); toast('No se pudo confirmar', true); }
@@ -1232,7 +1327,95 @@ function renderMyProfilePreview(){
         <div class="tcard-tags"><span class="tag-pill zone">${t.zone}</span><span class="tag-pill">${MODALIDADES.find(m=>m.id===t.modalidad)?.label}</span></div>
       </div>
     </div>
-    <button class="btn btn-ghost btn-block" style="margin-top:12px;" onclick="editMyProfile()">Editar mi perfil</button>`;
+    <button class="btn btn-ghost btn-block" style="margin-top:12px;" onclick="editMyProfile()">Editar mi perfil</button>
+    <button class="btn btn-teal btn-block" style="margin-top:10px;" onclick="openHorariosModal()">Mis horarios</button>`;
+}
+
+/* ============ MIS HORARIOS (disponibilidad del profesor) ============ */
+const DIAS_SEMANA = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+let horariosDraft = [];
+let pausaDraft = false;
+
+window.openHorariosModal = function(){
+  if(!currentEditingTeacher){ toast('Primero publica tu perfil de profesor', true); return; }
+  horariosDraft = [...(currentEditingTeacher.horarios || [])];
+  pausaDraft = !!currentEditingTeacher.pausado;
+  document.getElementById('pausaMensaje').value = currentEditingTeacher.pausaMensaje || '';
+  populateDiaSelect();
+  renderPausaToggle();
+  renderHorariosList();
+  document.getElementById('horariosModal').classList.add('active');
+}
+window.closeHorariosModal = function(){ document.getElementById('horariosModal').classList.remove('active'); }
+
+function populateDiaSelect(){
+  const sel = document.getElementById('horario_dia');
+  if(sel.options.length) return; // ya está lleno, no repetir
+  DIAS_SEMANA.forEach(d=>{
+    const o = document.createElement('option');
+    o.value = d; o.textContent = d;
+    sel.appendChild(o);
+  });
+}
+
+function renderPausaToggle(){
+  document.getElementById('pausaToggle').classList.toggle('on', pausaDraft);
+  document.getElementById('pausaMsgField').style.display = pausaDraft ? 'block' : 'none';
+}
+window.togglePausa = function(){ pausaDraft = !pausaDraft; renderPausaToggle(); }
+
+function renderHorariosList(){
+  const wrap = document.getElementById('horariosList');
+  if(horariosDraft.length===0){
+    wrap.innerHTML = `<div class="empty-state" style="padding:20px;"><p>Todavía no agregaste bloques.</p></div>`;
+    return;
+  }
+  wrap.innerHTML = horariosDraft.map((b,i)=>`
+    <div class="horario-block ${b.estado==='ocupado'?'ocupado':''}">
+      <span>${b.dia} · ${b.inicio}–${b.fin} · ${b.estado==='ocupado'?'Ocupado':'Disponible'}</span>
+      <div class="horario-block-actions">
+        <button onclick="toggleEstadoBloque(${i})" title="Cambiar estado">${b.estado==='ocupado'?'↩':'✕'}</button>
+        <button onclick="eliminarBloque(${i})" title="Eliminar">🗑</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+window.agregarBloqueHorario = function(){
+  const dia = document.getElementById('horario_dia').value;
+  const inicio = document.getElementById('horario_inicio').value;
+  const fin = document.getElementById('horario_fin').value;
+  if(!inicio || !fin){ toast('Completa la hora de inicio y fin', true); return; }
+  if(inicio >= fin){ toast('La hora de fin debe ser después del inicio', true); return; }
+  horariosDraft.push({ id: `${Date.now()}`, dia, inicio, fin, estado: 'disponible' });
+  document.getElementById('horario_inicio').value = '';
+  document.getElementById('horario_fin').value = '';
+  renderHorariosList();
+}
+
+window.toggleEstadoBloque = function(i){
+  horariosDraft[i].estado = horariosDraft[i].estado === 'ocupado' ? 'disponible' : 'ocupado';
+  renderHorariosList();
+}
+window.eliminarBloque = function(i){
+  horariosDraft.splice(i,1);
+  renderHorariosList();
+}
+
+window.guardarHorarios = async function(){
+  try{
+    const pausaMensaje = document.getElementById('pausaMensaje').value.trim();
+    await updateDoc(doc(db,"profesores",currentUser.uid), {
+      horarios: horariosDraft,
+      pausado: pausaDraft,
+      pausaMensaje
+    });
+    currentEditingTeacher.horarios = horariosDraft;
+    currentEditingTeacher.pausado = pausaDraft;
+    currentEditingTeacher.pausaMensaje = pausaMensaje;
+    closeHorariosModal();
+    toast('Tus horarios se guardaron ✓');
+  }catch(e){ console.error(e); toast('No se pudo guardar', true); }
 }
 
 /* ============ TOAST ============ */
