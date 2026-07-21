@@ -912,30 +912,41 @@ window.openChat = async function(reservaId, otroNombre){
   document.getElementById('chatMessages').innerHTML = `<div class="empty-state"><p>Cargando conversación…</p></div>`;
   switchView('chat');
 
-  // Necesitamos saber quiénes son las dos partes, para poder guardarlas en
-  // cada mensaje (así las reglas de seguridad no necesitan leer el documento padre).
-  const reservaSnap = await getDoc(doc(db,"reservas",reservaId));
-  if(!reservaSnap.exists()){ toast('No se encontró esta conversación', true); return; }
-  const r = reservaSnap.data();
-  chatAlumnoId = r.alumnoId;
-  chatProfesorId = r.profesorId;
-
-  if(chatUnsub) chatUnsub(); // corta cualquier chat anterior que hubiera quedado abierto
-  const mensajesQ = query(collection(db,"reservas",reservaId,"mensajes"), orderBy("createdAt","asc"));
-  chatUnsub = onSnapshot(mensajesQ, (snap)=>{
-    const wrap = document.getElementById('chatMessages');
-    if(snap.empty){
-      wrap.innerHTML = `<div class="empty-state"><p>Todavía no hay mensajes.<br>Coordina aquí el horario y los detalles.</p></div>`;
+  try{
+    // Necesitamos saber quiénes son las dos partes, para poder guardarlas en
+    // cada mensaje (así las reglas de seguridad no necesitan leer el documento padre).
+    const reservaSnap = await getDoc(doc(db,"reservas",reservaId));
+    if(!reservaSnap.exists()){
+      document.getElementById('chatMessages').innerHTML = `<div class="empty-state"><p>No se encontró esta conversación.</p></div>`;
       return;
     }
-    wrap.innerHTML = snap.docs.map(d=>{
-      const m = d.data();
-      const mia = m.de === currentUser.uid;
-      const hora = m.createdAt?.toDate ? m.createdAt.toDate().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}) : '';
-      return `<div class="msg ${mia?'mine':'other'}">${m.texto}<span class="msg-time">${hora}</span></div>`;
-    }).join('');
-    wrap.scrollTop = wrap.scrollHeight;
-  }, (err)=>console.error(err));
+    const r = reservaSnap.data();
+    chatAlumnoId = r.alumnoId;
+    chatProfesorId = r.profesorId;
+
+    if(chatUnsub) chatUnsub(); // corta cualquier chat anterior que hubiera quedado abierto
+    const mensajesQ = query(collection(db,"reservas",reservaId,"mensajes"), orderBy("createdAt","asc"));
+    chatUnsub = onSnapshot(mensajesQ, (snap)=>{
+      const wrap = document.getElementById('chatMessages');
+      if(snap.empty){
+        wrap.innerHTML = `<div class="empty-state"><p>Todavía no hay mensajes.<br>Coordina aquí el horario y los detalles.</p></div>`;
+        return;
+      }
+      wrap.innerHTML = snap.docs.map(d=>{
+        const m = d.data();
+        const mia = m.de === currentUser.uid;
+        const hora = m.createdAt?.toDate ? m.createdAt.toDate().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}) : '';
+        return `<div class="msg ${mia?'mine':'other'}">${m.texto}<span class="msg-time">${hora}</span></div>`;
+      }).join('');
+      wrap.scrollTop = wrap.scrollHeight;
+    }, (err)=>{
+      console.error(err);
+      document.getElementById('chatMessages').innerHTML = `<div class="empty-state"><div class="icon">⚠</div><p>No se pudo cargar el chat.<br><span style="font-size:11px;">${err.code||err.message||''}</span></p></div>`;
+    });
+  }catch(e){
+    console.error(e);
+    document.getElementById('chatMessages').innerHTML = `<div class="empty-state"><div class="icon">⚠</div><p>No se pudo abrir esta conversación.<br><span style="font-size:11px;">${e.code||e.message||''}</span></p></div>`;
+  }
 }
 
 window.closeChat = function(){
