@@ -1039,6 +1039,11 @@ window.switchView = function(name){
   const btn = document.querySelector(`.navbtn[data-nav="${name}"]`);
   if(btn) btn.classList.add('active');
   if(name==='ensenar') renderMyProfilePreview();
+
+  // El chat usa toda la pantalla; ocultamos la barra inferior para que
+  // el cuadro de escribir no quede tapado detrás de ella.
+  const nav = document.querySelector('.bottomnav');
+  if(nav) nav.style.display = (name==='chat') ? 'none' : 'flex';
 }
 
 window.goSuplencias = function(){
