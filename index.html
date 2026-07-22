@@ -78,8 +78,8 @@
   .login-link{font-size:12.5px;color:var(--text-dim);background:none;border:none;text-decoration:underline;}
 
   .view{display:none;padding:0 24px 100px;}
-  .view.view-flush{padding:0;display:none;flex-direction:column;height:calc(100vh - 76px);}
-  .view.view-flush.active{display:flex;}
+  .view.view-flush{padding:0;display:none;flex-direction:column;}
+  .view.view-flush.active{display:flex;position:fixed;inset:0;z-index:60;background:var(--ink);height:100vh;height:100dvh;max-width:480px;margin:0 auto;}
   .view.active{display:block;}
 
   .hero{padding:8px 0 20px;}
@@ -1397,16 +1397,31 @@ function renderHorariosList(){
   `).join('');
 }
 
+function horaAMinutos(t){ const [h,m] = t.split(':').map(Number); return h*60+m; }
+function minutosAHora(m){ const h = Math.floor(m/60); const mm = m%60; return String(h).padStart(2,'0')+':'+String(mm).padStart(2,'0'); }
+
 window.agregarBloqueHorario = function(){
   const dia = document.getElementById('horario_dia').value;
   const inicio = document.getElementById('horario_inicio').value;
   const fin = document.getElementById('horario_fin').value;
   if(!inicio || !fin){ toast('Completa la hora de inicio y fin', true); return; }
   if(inicio >= fin){ toast('La hora de fin debe ser después del inicio', true); return; }
-  horariosDraft.push({ id: `${Date.now()}`, dia, inicio, fin, estado: 'disponible' });
+
+  // Dividimos el rango en franjas de 1 hora, para que si alguien reserva
+  // una hora dentro del rango, las demás sigan quedando disponibles.
+  let cursor = horaAMinutos(inicio);
+  const finMin = horaAMinutos(fin);
+  let agregados = 0;
+  while(cursor < finMin){
+    const siguiente = Math.min(cursor+60, finMin);
+    horariosDraft.push({ id: `${Date.now()}_${cursor}`, dia, inicio: minutosAHora(cursor), fin: minutosAHora(siguiente), estado: 'disponible' });
+    cursor = siguiente;
+    agregados++;
+  }
   document.getElementById('horario_inicio').value = '';
   document.getElementById('horario_fin').value = '';
   renderHorariosList();
+  toast(`Se agregaron ${agregados} franja(s) de 1 hora`);
 }
 
 window.toggleEstadoBloque = function(i){
