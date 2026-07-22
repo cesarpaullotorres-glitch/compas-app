@@ -712,6 +712,15 @@ window.openSolicitudModal = function(teacherId){
   const slotsHtml = disponibles.length
     ? `<div class="field"><label>Elige un horario disponible</label>
         <div>${disponibles.map(b=>`<span class="slot-pill" id="slot_${b.id}" onclick="seleccionarSlot('${b.id}','${b.dia} ${b.inicio}–${b.fin}')">${b.dia} ${b.inicio}–${b.fin}</span>`).join('')}</div>
+      </div>
+      <div class="field">
+        <label>¿Cuántas clases seguidas (mismo día y hora, cada semana)?</label>
+        <select id="sol_numclases">
+          <option value="1">Solo esta (1 clase)</option>
+          <option value="4">Paquete de 4 semanas</option>
+          <option value="8">Paquete de 8 semanas</option>
+          <option value="12">Paquete de 12 semanas</option>
+        </select>
       </div>`
     : `<div class="field"><label>¿Qué día y hora te conviene?</label><input type="text" id="sol_horario" placeholder="Ej. Sábados 4pm"></div>`;
 
@@ -734,12 +743,26 @@ window.seleccionarSlot = function(slotId, texto){
   document.getElementById(`slot_${slotId}`).classList.add('selected');
 }
 
+/* Calcula la próxima fecha (YYYY-MM-DD) en que cae un día de la semana dado. */
+function proximaFecha(diaTexto, semanasAdelante){
+  const dias = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"]; // igual a Date.getDay()
+  const targetIdx = dias.indexOf(diaTexto);
+  const hoy = new Date();
+  let diff = (targetIdx - hoy.getDay() + 7) % 7;
+  if(diff === 0) diff = 7; // si cae hoy, damos margen y tomamos la próxima semana
+  const fecha = new Date(hoy);
+  fecha.setDate(hoy.getDate() + diff + (semanasAdelante*7));
+  return fecha.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
+}
+
 window.submitSolicitud = async function(){
   const disponibles = (solicitudTeacher.horarios || []).filter(b=>b.estado==='disponible');
-  let horario;
+  let horario, diaSemana = null, numClases = 1;
   if(disponibles.length){
     if(!slotSeleccionado){ toast('Elige uno de los horarios disponibles', true); return; }
     horario = slotSeleccionado.texto;
+    diaSemana = slotSeleccionado.texto.split(' ')[0]; // "Martes 16:00–17:00" -> "Martes"
+    numClases = Number(document.getElementById('sol_numclases')?.value || 1);
   } else {
     horario = document.getElementById('sol_horario')?.value.trim();
     if(!horario){ toast('Cuéntanos qué horario te conviene', true); return; }
@@ -747,7 +770,17 @@ window.submitSolicitud = async function(){
   const mensaje = document.getElementById('sol_mensaje')?.value.trim() || '';
 
   try{
-    const comision = Math.round(solicitudTeacher.rate * COMISION_PORCENTAJE * 100)/100;
+    const precioTotal = solicitudTeacher.rate * numClases;
+    const comision = Math.round(precioTotal * COMISION_PORCENTAJE * 100)/100;
+
+    const clases = numClases > 1
+      ? Array.from({length:numClases}, (_,i)=>({
+          numero: i+1,
+          fecha: diaSemana ? proximaFecha(diaSemana, i) : null,
+          estado: 'pendiente'
+        }))
+      : null;
+
     await addDoc(collection(db, "reservas"), {
       alumnoId: currentUser.uid,
       alumnoNombre: currentUser.name,
@@ -755,17 +788,22 @@ window.submitSolicitud = async function(){
       profesorId: solicitudTeacher.id,
       profesorNombre: solicitudTeacher.name,
       profesorPhone: solicitudTeacher.phone || '',
-      precio: solicitudTeacher.rate,
+      precio: precioTotal,
+      precioPorClase: solicitudTeacher.rate,
       comisionApp: comision,
-      gananciaProfesor: solicitudTeacher.rate - comision,
+      gananciaProfesor: precioTotal - comision,
       horario, mensaje,
       slotId: slotSeleccionado ? slotSeleccionado.id : null,
+      esPaquete: numClases > 1,
+      numeroClases: numClases,
+      clases,
       estado: 'solicitud',
       pagadoAProfesor: false,
       calificada: false,
       createdAt: serverTimestamp()
     });
-    notificarCesar('🎵 Nueva solicitud de horario', `${currentUser.name} pidió horario con ${solicitudTeacher.name}: "${horario}"`);
+    const detalle = numClases > 1 ? `${numClases} clases (${horario})` : horario;
+    notificarCesar('🎵 Nueva solicitud de horario', `${currentUser.name} pidió horario con ${solicitudTeacher.name}: "${detalle}"`);
     closeReservaModal();
     toast('Solicitud enviada. Revisa "Mis reservas" cuando el profesor confirme.');
   }catch(e){
@@ -859,6 +897,27 @@ window.marcarCompletada = async function(reservaId){
   try{
     await updateDoc(doc(db,"reservas",reservaId), { estado: 'completada' });
     toast('¡Clase marcada como completada!');
+    loadMyReservas();
+  }catch(e){ console.error(e); toast('No se pudo marcar', true); }
+}
+
+/* Marca una clase específica dentro de un paquete de varias semanas.
+   Cuando ya todas están hechas, el paquete completo pasa a "completada"
+   y recién ahí se habilita la calificación. */
+window.marcarClaseDelPaquete = async function(reservaId, numero){
+  const ok = confirm(`¿Confirmas que la clase ${numero} ya se dictó?`);
+  if(!ok) return;
+  try{
+    const snap = await getDoc(doc(db,"reservas",reservaId));
+    if(!snap.exists()) return;
+    const r = snap.data();
+    const clases = (r.clases||[]).map(c => c.numero===numero ? {...c, estado:'completada'} : c);
+    const todasListas = clases.every(c=>c.estado==='completada');
+    await updateDoc(doc(db,"reservas",reservaId), {
+      clases,
+      estado: todasListas ? 'completada' : 'pago_confirmado'
+    });
+    toast(todasListas ? '¡Paquete completo! 🎵' : 'Clase marcada como hecha');
     loadMyReservas();
   }catch(e){ console.error(e); toast('No se pudo marcar', true); }
 }
@@ -1027,8 +1086,18 @@ function renderMisReservas(lista, rol){
     } else if(r.estado==='pendiente_pago'){
       estadoTxt = 'Verificando tu pago';
     } else if(r.estado==='pago_confirmado'){
-      estadoTxt = `Clase confirmada`;
-      accion = `<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="marcarCompletada('${r.id}')">Marcar clase completada</button>`;
+      if(r.esPaquete && r.clases){
+        const pendientesTxt = r.clases.filter(c=>c.estado==='pendiente').length;
+        estadoTxt = `Paquete de ${r.numeroClases} clases · ${pendientesTxt} por dictar`;
+        accion = `<div style="margin-top:8px;">` + r.clases.map(c=>
+          c.estado==='completada'
+            ? `<div class="admin-row"><span class="name">Clase ${c.numero} · ${c.fecha||''}</span><span class="meta">✓ Completada</span></div>`
+            : `<div class="admin-row"><span class="name">Clase ${c.numero} · ${c.fecha||''}</span><button class="btn btn-ghost btn-sm" onclick="marcarClaseDelPaquete('${r.id}',${c.numero})">Marcar hecha</button></div>`
+        ).join('') + `</div>`;
+      } else {
+        estadoTxt = `Clase confirmada`;
+        accion = `<button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="marcarCompletada('${r.id}')">Marcar clase completada</button>`;
+      }
     } else if(r.estado==='completada'){
       estadoTxt = 'Clase completada';
       if(rol==='alumno' && !r.calificada) accion = `<button class="btn btn-teal btn-sm" style="margin-top:8px;" onclick="openCalificarModal('${r.id}','${r.profesorId}','${r.profesorNombre}')">Calificar clase</button>`;
@@ -1713,7 +1782,7 @@ window.confirmarPago = async function(reservaId){
     const r = reservaSnap.data();
 
     await updateDoc(reservaRef, { estado: 'pago_confirmado', confirmedAt: serverTimestamp() });
-    await updateDoc(doc(db, "profesores", r.profesorId), { clasesCompletadas: increment(1) });
+    await updateDoc(doc(db, "profesores", r.profesorId), { clasesCompletadas: increment(r.numeroClases || 1) });
 
     toast('Pago confirmado. El alumno ya puede ver el contacto.');
     loadAdminStats();
