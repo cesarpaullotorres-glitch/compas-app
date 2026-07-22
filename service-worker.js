@@ -1,4 +1,4 @@
-const CACHE_NAME = 'compas-cache-v13';
+const CACHE_NAME = 'compas-cache-v14';
 const FILES_TO_CACHE = [
   './index.html',
   './manifest.json',
