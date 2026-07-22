@@ -79,7 +79,7 @@
 
   .view{display:none;padding:0 24px 100px;}
   .view.view-flush{padding:0;display:none;flex-direction:column;}
-  .view.view-flush.active{display:flex;position:fixed;inset:0;z-index:60;background:var(--ink);height:100vh;height:100dvh;max-width:480px;margin:0 auto;}
+  .view.view-flush.active{display:flex;position:fixed;top:0;left:0;right:0;z-index:60;background:var(--ink);height:100vh;height:100dvh;max-width:480px;margin:0 auto;}
   .view.active{display:block;}
 
   .hero{padding:8px 0 20px;}
@@ -316,7 +316,7 @@
     </div>
     <div class="chat-messages" id="chatMessages"></div>
     <div class="chat-input-row">
-      <input type="text" id="chatInput" placeholder="Escribe un mensaje..." maxlength="500" onkeydown="if(event.key==='Enter') sendChatMessage();">
+      <input type="text" id="chatInput" placeholder="Escribe un mensaje..." maxlength="500" onkeydown="if(event.key==='Enter') sendChatMessage();" onfocus="setTimeout(ajustarAlturaChat, 300)">
       <button class="chat-send" onclick="sendChatMessage()">➤</button>
     </div>
   </div>
@@ -906,11 +906,26 @@ let chatAlumnoId = null;
 let chatProfesorId = null;
 let chatUnsub = null; // función para desconectar el listener al salir, y no gastar lecturas de más
 
+/* Mantiene el chat ajustado al espacio visible real, para que el teclado
+   del celular no empuje los mensajes fuera de la pantalla. */
+function ajustarAlturaChat(){
+  const vc = document.getElementById('view-chat');
+  if(!vc || !vc.classList.contains('active')) return;
+  const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  vc.style.height = h + 'px';
+  const wrap = document.getElementById('chatMessages');
+  if(wrap) wrap.scrollTop = wrap.scrollHeight;
+}
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', ajustarAlturaChat);
+}
+
 window.openChat = async function(reservaId, otroNombre){
   chatReservaId = reservaId;
   document.getElementById('chat_otro_nombre').textContent = otroNombre;
   document.getElementById('chatMessages').innerHTML = `<div class="empty-state"><p>Cargando conversación…</p></div>`;
   switchView('chat');
+  ajustarAlturaChat();
 
   try{
     // Necesitamos saber quiénes son las dos partes, para poder guardarlas en
