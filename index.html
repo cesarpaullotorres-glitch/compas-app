@@ -335,11 +335,23 @@
   <div class="bottomnav">
     <button class="navbtn active" data-nav="explorar" onclick="switchView('explorar')"><span class="ic">♪</span>Explorar</button>
     <button class="navbtn" data-nav="ensenar" onclick="switchView('ensenar')"><span class="ic">✎</span>Enseñar</button>
-    <button class="navbtn" data-nav="suplencias" onclick="goSuplencias()"><span class="ic">⚑</span>Suplencias<span class="lock" id="supLock">🔒</span></button>
+    <button class="navbtn" data-nav="suplencias" onclick="goSuplencias()"><span class="ic">⚑</span>Suplencias</button>
     <button class="navbtn" data-nav="cuenta" onclick="openAccountOrAuth()"><span class="ic">◐</span>Mi cuenta</button>
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <!-- ===== MODAL: ELEGIR ROL (primer contacto, sin sesión) ===== -->
+  <div class="modal-overlay" id="roleChoiceModal">
+    <div class="modal">
+      <h3>¿Qué quieres hacer en Compás?</h3>
+      <div class="hint">Elige una opción para continuar.</div>
+      <button class="btn btn-primary btn-block btn-lg" onclick="closeRoleChoice(); openAuthModal('register');">Quiero tomar clases</button>
+      <button class="btn btn-teal btn-block btn-lg" style="margin-top:10px;" onclick="closeRoleChoice(); startWizard();">Quiero enseñar</button>
+      <button class="btn btn-ghost btn-block" style="margin-top:16px;" onclick="closeRoleChoice(); openAuthModal('login');">Ya tengo cuenta, iniciar sesión</button>
+      <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="closeRoleChoice()">Cerrar</button>
+    </div>
+  </div>
 
   <!-- ===== MODAL: AUTH (login / registro alumno) ===== -->
   <div class="modal-overlay" id="authModal">
@@ -570,18 +582,20 @@ function renderAuthWidget(){
 }
 
 function renderNavLock(){
-  const lock = document.getElementById('supLock');
-  lock.style.display = (currentUser && currentUser.role === 'profesor') ? 'none' : 'inline';
+  const esProfesor = currentUser && currentUser.role === 'profesor';
 
-  // "Enseñar" es exclusiva de profesores. Los alumnos no la ven.
+  // "Enseñar" y "Suplencias" son exclusivas del gremio de profesores.
+  // Un visitante o un alumno solo ven Explorar y Mi cuenta al inicio.
   const ensenarBtn = document.querySelector('.navbtn[data-nav="ensenar"]');
-  if(ensenarBtn){
-    const esAlumno = currentUser && currentUser.role === 'alumno';
-    ensenarBtn.style.display = esAlumno ? 'none' : 'flex';
-    // Si un alumno estaba parado en esa vista cuando pierde acceso, lo regresamos a Explorar.
-    if(esAlumno && document.getElementById('view-ensenar').classList.contains('active')){
-      switchView('explorar');
-    }
+  const suplenciasBtn = document.querySelector('.navbtn[data-nav="suplencias"]');
+  if(ensenarBtn) ensenarBtn.style.display = esProfesor ? 'flex' : 'none';
+  if(suplenciasBtn) suplenciasBtn.style.display = esProfesor ? 'flex' : 'none';
+
+  // Si alguien pierde acceso a una vista mientras la tenía abierta, lo regresamos a Explorar.
+  if(!esProfesor){
+    const enVistaRestringida = document.getElementById('view-ensenar').classList.contains('active')
+      || document.getElementById('view-suplencias').classList.contains('active');
+    if(enVistaRestringida) switchView('explorar');
   }
 }
 
@@ -624,7 +638,7 @@ function populateInstrumentSelect(selectEl){
 function renderFilterbar(){
   const bar = document.getElementById('filterbar');
   bar.innerHTML = "";
-  const zonesUsed = ["Todos", ...new Set(TEACHERS.map(t=>t.zone))];
+  const zonesUsed = ["Todos", ...new Set(TEACHERS.filter(t=>t.aprobado===true).map(t=>t.zone))];
   zonesUsed.forEach(z=>{
     const chip = document.createElement('button');
     chip.className = "chip" + (z===activeFilter ? " active":"");
@@ -638,7 +652,8 @@ function initials(name){ return (name||"?").split(' ').map(p=>p[0]).slice(0,2).j
 
 function renderTeacherList(){
   const list = document.getElementById('teacherList');
-  const filtered = activeFilter==="Todos" ? TEACHERS : TEACHERS.filter(t=>t.zone===activeFilter);
+  const aprobados = TEACHERS.filter(t=>t.aprobado === true);
+  const filtered = activeFilter==="Todos" ? aprobados : aprobados.filter(t=>t.zone===activeFilter);
   if(filtered.length===0){
     list.innerHTML = `<div class="empty-state"><div class="icon">♪</div><p>Todavía no hay profesores en esta zona.<br>Sé el primero en publicar tu perfil.</p></div>`;
     return;
@@ -697,7 +712,7 @@ let estrellasSeleccionadas = 0;
 let slotSeleccionado = null;
 
 window.openSolicitudModal = function(teacherId){
-  if(!currentUser){ toast('Inicia sesión para solicitar una clase', true); openAuthModal('login'); return; }
+  if(!currentUser){ toast('Si quieres reservar una clase, primero regístrate como alumno', true); openAuthModal('register'); return; }
   if(currentUser.role !== 'alumno'){ toast('Solo los alumnos pueden solicitar clases', true); return; }
   solicitudTeacher = TEACHERS.find(t=>t.id===teacherId);
   if(!solicitudTeacher) return;
@@ -1412,16 +1427,17 @@ window.publishProfile = async function(){
     if(!esEdicion){
       datosProfesor.clasesCompletadas = 0;
       datosProfesor.createdAt = serverTimestamp();
+      datosProfesor.aprobado = false; // pendiente de revisión manual del admin
     }
     await setDoc(doc(db, "profesores", uid), datosProfesor, { merge: true });
 
     currentUser = { ...currentUser, uid, email, name: draft.name, role: "profesor", zone: draft.zone, phone: draft.phone };
-    currentEditingTeacher = { id: uid, ...draft, rate: Number(draft.rate) };
+    currentEditingTeacher = { id: uid, ...draft, rate: Number(draft.rate), aprobado: esEdicion ? currentEditingTeacher?.aprobado : false, clasesCompletadas: esEdicion ? currentEditingTeacher?.clasesCompletadas : 0 };
     renderAuthWidget();
     renderNavLock();
     switchView('ensenar');
     renderMyProfilePreview();
-    toast(esEdicion ? '¡Perfil actualizado! 🎵' : '¡Tu perfil ya está publicado! 🎵');
+    toast(esEdicion ? '¡Perfil actualizado! 🎵' : 'Perfil enviado. En revisión antes de publicarse ✓');
   }catch(e){
     console.error(e);
     let msg = 'No se pudo publicar tu perfil.';
@@ -1435,7 +1451,11 @@ function renderMyProfilePreview(){
   const wrap = document.getElementById('myProfilePreview');
   if(!currentEditingTeacher){ wrap.innerHTML=''; return; }
   const t = currentEditingTeacher;
-  wrap.innerHTML = `<div class="mono" style="color:var(--text-dim);margin-bottom:10px;">Tu perfil publicado</div>
+  const pendienteHtml = t.aprobado !== true
+    ? `<div class="pausa-banner" style="background:rgba(201,151,63,0.14);border-color:rgba(201,151,63,0.3);color:var(--brass-bright);">Tu perfil está en revisión. Aún no aparece en "Explorar" — te avisamos apenas se apruebe.</div>`
+    : '';
+  wrap.innerHTML = `<div class="mono" style="color:var(--text-dim);margin-bottom:10px;">Tu perfil</div>
+    ${pendienteHtml}
     <div class="teacher-card">
       <div class="avatar" style="${t.photo?`background-image:url(${t.photo})`:''}">${t.photo?'':initials(t.name)}</div>
       <div class="tcard-body">
@@ -1623,8 +1643,10 @@ window.saveStudent = async function(){
 
 /* ============ CUENTA (usuario logueado) ============ */
 window.openAccountOrAuth = function(){
-  if(currentUser){ openAccountModal(); } else { openAuthModal('login'); }
+  if(currentUser){ openAccountModal(); } else { openRoleChoice(); }
 }
+window.openRoleChoice = function(){ document.getElementById('roleChoiceModal').classList.add('active'); }
+window.closeRoleChoice = function(){ document.getElementById('roleChoiceModal').classList.remove('active'); }
 function openAccountModal(){
   document.getElementById('acc_name').textContent = currentUser.name || currentUser.email;
   document.getElementById('acc_role').textContent = currentUser.role === 'profesor' ? 'Profesor del gremio' : 'Alumno';
@@ -1735,8 +1757,13 @@ window.loadAdminStats = async function(){
     let suplenciasAbiertas = 0;
     suplenciasSnap.forEach(d=>{ if(d.data().estado === 'abierta') suplenciasAbiertas++; });
 
+    const pendientesAprobar = profesoresSnap.docs
+      .map(d=>({id:d.id, ...d.data()}))
+      .filter(t=>t.aprobado !== true);
+
     const recientes = profesoresSnap.docs
       .map(d=>({id:d.id, ...d.data()}))
+      .filter(t=>t.aprobado === true)
       .sort((a,b)=> (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0))
       .slice(0,6);
 
@@ -1762,6 +1789,20 @@ window.loadAdminStats = async function(){
         <div class="stat-card"><div class="stat-num">S/ ${comisionAcumulada.toFixed(0)}</div><div class="stat-label">Comisión ganada</div></div>
         <div class="stat-card"><div class="stat-num">${suplenciasAbiertas}</div><div class="stat-label">Suplencias abiertas</div></div>
       </div>
+
+      <div class="admin-section-title mono">Profesores pendientes de aprobar (${pendientesAprobar.length})</div>
+      ${pendientesAprobar.length===0 ? '<div class="empty-state"><p>No hay nadie esperando aprobación.</p></div>' :
+        pendientesAprobar.map(t=>`
+          <div class="sup-card">
+            <div class="sup-top"><span class="sup-title">${t.name}</span><span class="sup-monto">S/ ${t.rate}/h</span></div>
+            <div class="sup-meta">${(t.instruments||[]).join(' · ')} · ${t.zone}</div>
+            ${t.bio ? `<div class="sup-msg">${t.bio}</div>` : ''}
+            <div class="cta-row" style="margin-top:8px;">
+              <button class="btn btn-teal btn-sm" onclick="aprobarProfesor('${t.id}')">Aprobar</button>
+              <button class="btn btn-ghost btn-sm" onclick="rechazarProfesor('${t.id}')">Rechazar</button>
+            </div>
+          </div>
+        `).join('')}
 
       <div class="admin-section-title mono">Reservas por confirmar (${pendientes.length})</div>
       ${pendientes.length===0 ? '<div class="empty-state"><p>No hay reservas pendientes.</p></div>' :
@@ -1798,6 +1839,25 @@ window.loadAdminStats = async function(){
 /* El admin confirma que vio el pago llegar a su Yape/cuenta.
    Esto revela el contacto al alumno y suma la clase al contador
    de "verificado" del profesor. */
+/* Aprobar/rechazar profesores nuevos: mientras no estén aprobados, no
+   aparecen en "Explorar" ni pueden recibir solicitudes. */
+window.aprobarProfesor = async function(profesorId){
+  try{
+    await updateDoc(doc(db,"profesores",profesorId), { aprobado: true });
+    toast('Profesor aprobado ✓ Ya aparece en Explorar');
+    loadAdminStats();
+  }catch(e){ console.error(e); toast('No se pudo aprobar', true); }
+}
+window.rechazarProfesor = async function(profesorId){
+  const ok = confirm('¿Confirmas que este perfil no debe publicarse? Seguirá invisible en Explorar.');
+  if(!ok) return;
+  try{
+    await updateDoc(doc(db,"profesores",profesorId), { aprobado: false, rechazado: true });
+    toast('Perfil marcado como rechazado');
+    loadAdminStats();
+  }catch(e){ console.error(e); toast('No se pudo rechazar', true); }
+}
+
 window.confirmarPago = async function(reservaId){
   const ok = confirm('¿Confirmas que el pago llegó a tu cuenta?');
   if(!ok) return;
