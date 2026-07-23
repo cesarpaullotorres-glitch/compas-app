@@ -520,11 +520,17 @@ let currentUser = null;   // { uid, email, name, role, creditos, zone, phone }
 let authTab = 'login';
 /* ============ NOTIFICACIÓN A CÉSAR (ntfy.sh, gratis, sin backend) ============ */
 function notificarCesar(titulo, mensaje){
-  fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
-    method: 'POST',
-    body: mensaje,
-    headers: { 'Title': titulo, 'Priority': 'high', 'Tags': 'musical_note' }
-  }).catch(()=>{}); // si falla, no interrumpe el flujo del usuario
+  try{
+    fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+      method: 'POST',
+      body: mensaje,
+      headers: { 'Title': titulo, 'Priority': 'high', 'Tags': 'musical_note' }
+    }).then(res=>{
+      if(!res.ok) console.error('ntfy respondió con error:', res.status);
+    }).catch(err=>console.error('ntfy no se pudo enviar:', err));
+  }catch(err){
+    console.error('ntfy: error al construir la notificación (probablemente el título tiene un carácter no permitido):', err);
+  }
 }
 
 /* ============ AUTH STATE ============ */
@@ -803,7 +809,7 @@ window.submitSolicitud = async function(){
       createdAt: serverTimestamp()
     });
     const detalle = numClases > 1 ? `${numClases} clases (${horario})` : horario;
-    notificarCesar('🎵 Nueva solicitud de horario', `${currentUser.name} pidió horario con ${solicitudTeacher.name}: "${detalle}"`);
+    notificarCesar('Nueva solicitud de horario', `${currentUser.name} pidió horario con ${solicitudTeacher.name}: "${detalle}"`);
     closeReservaModal();
     toast('Solicitud enviada. Revisa "Mis reservas" cuando el profesor confirme.');
   }catch(e){
@@ -876,7 +882,7 @@ window.submitReserva = async function(){
     if(!comprobanteData){ toast('Sube tu comprobante de pago antes de continuar', true); return; }
     try{
       await updateDoc(doc(db,"reservas",pagoReservaId), { comprobante: comprobanteData, estado: 'pendiente_pago' });
-      notificarCesar('💳 Comprobante subido', 'Un alumno subió su comprobante. Revisa el panel para confirmar el pago.');
+      notificarCesar('Comprobante subido', 'Un alumno subió su comprobante. Revisa el panel para confirmar el pago.');
       closeReservaModal();
       pagoReservaId = null;
       toast('¡Listo! En cuanto confirmemos tu pago verás el contacto aquí mismo.');
