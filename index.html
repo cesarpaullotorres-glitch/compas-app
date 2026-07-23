@@ -359,13 +359,14 @@
 
       <div id="authFormRegister" style="display:none;">
         <h3>Crea tu cuenta de alumno</h3>
-        <div class="hint">Empiezas con 20 créditos gratis para contactar profesores.</div>
+        <div class="hint">Explora perfiles y solicita clases gratis.</div>
         <div class="field"><label>Nombre</label><input type="text" id="s_name" placeholder="Tu nombre"></div>
         <div class="field"><label>Correo</label><input type="email" id="s_email" placeholder="tucorreo@ejemplo.com"></div>
         <div class="field"><label>Contraseña</label><input type="password" id="s_pass" placeholder="Mínimo 6 caracteres"></div>
         <div class="field"><label>Teléfono / WhatsApp</label><input type="tel" id="s_phone" placeholder="+51 999 999 999"></div>
         <div class="field"><label>Tu zona</label><select id="s_zone"><option value="">Selecciona tu distrito</option></select></div>
         <button class="btn btn-primary btn-block btn-lg" onclick="saveStudent()">Registrarme</button>
+        <p style="font-size:11px;color:var(--text-dim);margin-top:12px;line-height:1.5;">Al registrarte aceptas que el administrador del gremio puede revisar conversaciones internas en caso de disputas o reportes, para proteger la seguridad de la comunidad.</p>
       </div>
 
       <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="closeAuthModal()">Cerrar</button>
@@ -715,17 +716,26 @@ window.openSolicitudModal = function(teacherId){
   document.getElementById('reservaModalBtn').style.display = 'block';
 
   const disponibles = (solicitudTeacher.horarios || []).filter(b=>b.estado==='disponible');
+  const porDia = {};
+  disponibles.forEach(b=>{ (porDia[b.dia] = porDia[b.dia]||[]).push(b); });
+  const diasOrdenados = DIAS_SEMANA.filter(d=>porDia[d]);
+
   const slotsHtml = disponibles.length
     ? `<div class="field"><label>Elige un horario disponible</label>
-        <div>${disponibles.map(b=>`<span class="slot-pill" id="slot_${b.id}" onclick="seleccionarSlot('${b.id}','${b.dia} ${b.inicio}–${b.fin}')">${b.dia} ${b.inicio}–${b.fin}</span>`).join('')}</div>
+        ${diasOrdenados.map(dia=>`
+          <div style="margin-bottom:10px;">
+            <div class="mono" style="color:var(--text-dim);font-size:11px;margin-bottom:6px;">${dia}</div>
+            ${porDia[dia].map(b=>`<span class="slot-pill" id="slot_${b.id}" onclick="seleccionarSlot('${b.id}','${b.dia} ${b.inicio}–${b.fin}')">${b.inicio}–${b.fin}</span>`).join('')}
+          </div>
+        `).join('')}
       </div>
       <div class="field">
-        <label>¿Cuántas clases seguidas (mismo día y hora, cada semana)?</label>
+        <label>¿Cuántas semanas seguidas?</label>
         <select id="sol_numclases">
-          <option value="1">Solo esta (1 clase)</option>
-          <option value="4">Paquete de 4 semanas</option>
-          <option value="8">Paquete de 8 semanas</option>
-          <option value="12">Paquete de 12 semanas</option>
+          <option value="1">Solo esta clase</option>
+          <option value="4">4 semanas</option>
+          <option value="8">8 semanas</option>
+          <option value="12">12 semanas</option>
         </select>
       </div>`
     : `<div class="field"><label>¿Qué día y hora te conviene?</label><input type="text" id="sol_horario" placeholder="Ej. Sábados 4pm"></div>`;
@@ -808,8 +818,8 @@ window.submitSolicitud = async function(){
       calificada: false,
       createdAt: serverTimestamp()
     });
-    const detalle = numClases > 1 ? `${numClases} clases (${horario})` : horario;
-    notificarCesar('Nueva solicitud de horario', `${currentUser.name} pidió horario con ${solicitudTeacher.name}: "${detalle}"`);
+    // Sin alarma aquí a propósito: la coordinación de horario entre alumno y
+    // profesor es privada. Solo te avisamos cuando hay dinero de por medio.
     closeReservaModal();
     toast('Solicitud enviada. Revisa "Mis reservas" cuando el profesor confirme.');
   }catch(e){
@@ -1237,7 +1247,8 @@ function renderStep(){
       html = `<div class="step"><div class="step-eyebrow mono">Paso 9 de ${STEPS.length}</div><h2>Crea tu cuenta de profesor</h2><div class="hint">La usarás para publicar suplencias y administrar tu perfil.</div>
         <div class="field"><label>WhatsApp</label><input type="tel" id="in_phone" value="${draft.phone}" placeholder="+51 999 999 999"></div>
         <div class="field"><label>Correo</label><input type="email" id="in_email" value="${draft.email}" placeholder="tucorreo@ejemplo.com"></div>
-        <div class="field"><label>Contraseña</label><input type="password" id="in_pass" placeholder="Mínimo 6 caracteres"></div></div>`;
+        <div class="field"><label>Contraseña</label><input type="password" id="in_pass" placeholder="Mínimo 6 caracteres"></div>
+        <p style="font-size:11px;color:var(--text-dim);margin-top:4px;line-height:1.5;">Al crear tu cuenta aceptas que el administrador del gremio puede revisar conversaciones internas en caso de disputas o reportes, para proteger la seguridad de la comunidad.</p></div>`;
     }
   }
   else if(step==='preview'){
@@ -1476,13 +1487,22 @@ function renderHorariosList(){
     wrap.innerHTML = `<div class="empty-state" style="padding:20px;"><p>Todavía no agregaste bloques.</p></div>`;
     return;
   }
-  wrap.innerHTML = horariosDraft.map((b,i)=>`
-    <div class="horario-block ${b.estado==='ocupado'?'ocupado':''}">
-      <span>${b.dia} · ${b.inicio}–${b.fin} · ${b.estado==='ocupado'?'Ocupado':'Disponible'}</span>
-      <div class="horario-block-actions">
-        <button onclick="toggleEstadoBloque(${i})" title="Cambiar estado">${b.estado==='ocupado'?'↩':'✕'}</button>
-        <button onclick="eliminarBloque(${i})" title="Eliminar">🗑</button>
-      </div>
+  const porDia = {};
+  horariosDraft.forEach((b,i)=>{ (porDia[b.dia] = porDia[b.dia]||[]).push({...b, _i:i}); });
+  const diasOrdenados = DIAS_SEMANA.filter(d=>porDia[d]);
+
+  wrap.innerHTML = diasOrdenados.map(dia=>`
+    <div style="margin-bottom:10px;">
+      <div class="mono" style="color:var(--text-dim);font-size:11px;margin-bottom:6px;">${dia}</div>
+      ${porDia[dia].map(b=>`
+        <div class="horario-block ${b.estado==='ocupado'?'ocupado':''}">
+          <span>${b.inicio}–${b.fin} · ${b.estado==='ocupado'?'Ocupado':'Disponible'}</span>
+          <div class="horario-block-actions">
+            <button onclick="toggleEstadoBloque(${b._i})" title="Cambiar estado">${b.estado==='ocupado'?'↩':'✕'}</button>
+            <button onclick="eliminarBloque(${b._i})" title="Eliminar">🗑</button>
+          </div>
+        </div>
+      `).join('')}
     </div>
   `).join('');
 }
